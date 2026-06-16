@@ -1,0 +1,2446 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Code Green — Global Green Space Tracker</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- Django Auth + API (replaces Firebase) -->
+  <script>
+    // ── Auth ──────────────────────────────────────────────────────────────────
+    // Injected from Django session
+    const _djangoAuth = {{ is_authenticated|lower }};
+    const _djangoName = "{{ display_name|default:''|escapejs }}";
+
+    window.fbSignIn  = () => { window.location = '/accounts/google/login/?next=/'; };
+    window.fbSignOut = () => {
+      fetch('/accounts/logout/', {method:'POST', headers:{'X-CSRFToken':getCookie('csrftoken')}})
+        .then(()=>window.location.reload());
+    };
+
+    // ── Comments ──────────────────────────────────────────────────────────────
+    window.fbPostComment = async (text) => {
+      const site  = SITES[currentSiteIdx]?.id || 'wilmington';
+      const year  = YEARS[parseInt(document.getElementById('yr-slider').value)];
+      const resp  = await fetch(`/api/comments/${site}/${year}/`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')},
+        body: JSON.stringify({text, author: currentUser?.name || 'Anonymous'})
+      });
+      return resp.ok;
+    };
+    window.fbLoadComments = async () => {
+      const site = SITES[currentSiteIdx]?.id || 'wilmington';
+      const year = YEARS[parseInt(document.getElementById('yr-slider').value)];
+      const resp = await fetch(`/api/comments/${site}/${year}/`);
+      const data = await resp.json();
+      // Normalise to shape the rest of the JS expects
+      return data.map(c=>({...c, date:{seconds: new Date(c.created_at).getTime()/1000}}));
+    };
+
+    // ── Marks ─────────────────────────────────────────────────────────────────
+    window.fbPostMark = async (data) => {
+      const site = SITES[currentSiteIdx]?.id || 'wilmington';
+      await fetch('/api/marks/', {
+        method:'POST',
+        headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')},
+        body: JSON.stringify({...data, site_id: site})
+      });
+    };
+    window.fbLoadMarks = async () => {
+      const site = SITES[currentSiteIdx]?.id || 'wilmington';
+      const resp = await fetch(`/api/marks/?site=${site}`);
+      return resp.json();
+    };
+    window.fbPostPledge = async () => {};  // implement later
+    window.fbLoadPledges = async () => [];
+
+    function getCookie(name){
+      const v=document.cookie.match('(^|;)\s*'+name+'\s*=\s*([^;]+)');
+      return v?v.pop():'';
+    }
+  </script>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{font-family:'Segoe UI',Arial,sans-serif;background:#0d1612;color:#e0f0eb;height:100vh;display:flex;flex-direction:column;overflow:hidden;}
+    header{background:linear-gradient(135deg,#0d1612,#162e22);border-bottom:2px solid #27ae60;padding:10px 24px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+    .hl h1{font-size:1.2rem;color:#2ecc71;font-weight:700;transition:opacity 0.3s;}
+    .hl p{font-size:0.68rem;color:#6a9a88;margin-top:1px;transition:opacity 0.3s;}
+    .hr{display:flex;gap:8px;align-items:center;}
+    .badge{background:#162e22;border:1px solid #27ae60;border-radius:20px;padding:4px 12px;font-size:0.68rem;color:#2ecc71;font-weight:bold;cursor:pointer;}
+    .main{display:flex;flex:1;overflow:hidden;position:relative;}
+    #map{flex:1;height:100%;position:relative;background:#0d1612;}
+
+    /* ── Site switcher ── */
+    #site-switcher{position:absolute;bottom:32px;left:50%;transform:translateX(-50%);z-index:1000;display:flex;align-items:center;gap:0;background:rgba(13,22,18,0.92);border:1.5px solid #27ae60;border-radius:30px;padding:0;box-shadow:0 4px 20px rgba(0,0,0,0.5);backdrop-filter:blur(6px);}
+    .sw-arrow{background:none;border:none;color:#2ecc71;font-size:1.2rem;cursor:pointer;padding:8px 14px;transition:color 0.2s;line-height:1;}
+    .sw-arrow:hover{color:#fff;}
+    #site-name-display{font-size:0.82rem;font-weight:700;color:#e0f0eb;padding:0 4px;white-space:nowrap;min-width:180px;text-align:center;}
+    .sw-dots{display:flex;gap:5px;align-items:center;padding-right:14px;}
+    .sw-dot{width:6px;height:6px;border-radius:50%;background:#1a2e22;border:1.5px solid #27ae60;transition:background 0.2s;}
+    .sw-dot.active{background:#2ecc71;}
+
+    /* ── Sidebar ── */
+    .sidebar{width:300px;background:#0f1a16;border-left:1px solid #1a2e22;display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0;transition:width 0.3s ease,max-height 0.3s ease,opacity 0.2s ease;}
+    .sidebar.collapsed{width:0;overflow:hidden;opacity:0;border-left:none;}
+    /* Toggle tab — sits on the left edge of the sidebar, always visible */
+    #sidebar-toggle{position:absolute;top:50%;right:300px;transform:translateY(-50%);z-index:1001;background:#0f1a16;border:1px solid #27ae60;border-right:none;border-radius:8px 0 0 8px;padding:10px 5px;cursor:pointer;color:#2ecc71;font-size:0.7rem;line-height:1;display:flex;flex-direction:column;align-items:center;gap:4px;transition:right 0.3s ease,background 0.2s;box-shadow:-3px 0 10px rgba(0,0,0,0.4);}
+    #sidebar-toggle:hover{background:#162e22;}
+    #sidebar-toggle .toggle-chevron{font-size:0.85rem;transition:transform 0.3s;}
+    .sidebar.collapsed ~ * #sidebar-toggle,
+    #sidebar-toggle.open .toggle-chevron{transform:rotate(180deg);}
+    /* Tablet/phone: sidebar stacks vertically, so toggle tab goes to the top */
+    body.layout-tablet .sidebar,body.layout-phone .sidebar{transition:max-height 0.3s ease,opacity 0.2s ease;}
+    body.layout-tablet .sidebar.collapsed,body.layout-phone .sidebar.collapsed{width:100%!important;max-height:0!important;overflow:hidden;opacity:0;border-top:none;}
+    body.layout-tablet #map,body.layout-phone #map{order:1;}
+    body.layout-tablet #sidebar-toggle,body.layout-phone #sidebar-toggle{order:2;position:relative;top:auto;right:auto;bottom:auto;left:auto;transform:none;width:100%;border-radius:0;border:none;border-bottom:1px solid #1a2e22;border-right:none;border-left:none;flex-direction:row;padding:9px 16px;gap:8px;justify-content:center;font-size:0.72rem;background:#0f1a16;letter-spacing:0.05em;flex-shrink:0;box-shadow:none;}
+    body.layout-tablet .sidebar,body.layout-phone .sidebar{order:3;}
+    body.layout-tablet #sidebar-toggle .toggle-chevron,body.layout-phone #sidebar-toggle .toggle-chevron{display:none;}
+    body.layout-tablet #map.panel-hidden,body.layout-phone #map.panel-hidden{flex:1!important;height:auto!important;min-height:0!important;}
+    @media(max-width:700px){
+      .sidebar{transition:max-height 0.3s ease,opacity 0.2s ease;}
+      .sidebar.collapsed{width:100%!important;max-height:0!important;opacity:0;border-top:none;}
+      #map{order:1;}
+      #sidebar-toggle{order:2;position:relative;top:auto;right:auto;bottom:auto;left:auto;transform:none;width:100%;border-radius:0;border:none;border-bottom:1px solid #1a2e22;flex-direction:row;padding:9px 16px;gap:8px;justify-content:center;font-size:0.72rem;background:#0f1a16;flex-shrink:0;box-shadow:none;}
+      .sidebar{order:3;}
+      #sidebar-toggle .toggle-chevron{display:none;}
+      #map.panel-hidden{flex:1!important;height:auto!important;min-height:0!important;}
+    }
+    .sec{padding:14px 16px;border-bottom:1px solid #1a2e22;}
+    .sec h2{font-size:0.6rem;text-transform:uppercase;letter-spacing:2px;color:#27ae60;margin-bottom:12px;}
+    .toggle-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;position:relative;}
+    .toggle-row:last-child{margin-bottom:0;}
+    .toggle-label{font-size:0.75rem;color:#a0c9b8;font-weight:500;}
+    .toggle-label span{display:block;font-size:0.6rem;color:#3a5a4a;margin-top:1px;}
+    /* Tooltip bubble on hover */
+    .toggle-row[data-tip]{cursor:default;}
+    .toggle-row[data-tip]::after{
+      content:attr(data-tip);
+      position:absolute;left:0;bottom:calc(100% + 7px);
+      background:#0d1612;border:1px solid #27ae60;border-radius:7px;
+      color:#a0c9b8;font-size:0.65rem;line-height:1.5;padding:7px 10px;
+      width:240px;z-index:9999;pointer-events:none;
+      opacity:0;transform:translateY(4px);
+      transition:opacity 0.18s,transform 0.18s;
+      box-shadow:0 4px 16px rgba(0,0,0,0.5);
+      white-space:normal;
+    }
+    .toggle-row[data-tip]:hover::after{opacity:1;transform:translateY(0);}
+    /* Keep tooltip inside sidebar — flip upward if near top */
+    .toggle-row[data-tip].tip-below::after{top:calc(100% + 7px);bottom:auto;transform:translateY(-4px);}
+    .toggle-row[data-tip].tip-below:hover::after{transform:translateY(0);}
+    .switch{position:relative;display:inline-block;width:46px;height:26px;flex-shrink:0;}
+    .switch input{opacity:0;width:0;height:0;}
+    .sw-slider{position:absolute;inset:0;background:#1a2e22;border-radius:26px;cursor:pointer;border:1.5px solid #3a5a4a;transition:background 0.25s,border-color 0.25s;}
+    .sw-slider:before{content:'';position:absolute;height:18px;width:18px;left:4px;top:50%;transform:translateY(-50%);background:#4a6a5a;border-radius:50%;transition:transform 0.25s,background 0.25s;}
+    input:checked+.sw-slider{background:#27ae60;border-color:#27ae60;}
+    input:checked+.sw-slider:before{transform:translateY(-50%) translateX(20px);background:white;}
+    .opacity-row{display:flex;align-items:center;gap:8px;margin-top:6px;margin-bottom:4px;}
+    .opacity-row label{font-size:0.6rem;color:#3a5a4a;white-space:nowrap;width:48px;}
+    .opacity-row input[type=range]{flex:1;height:3px;background:linear-gradient(to right,#2ecc71 var(--op,72%),#1a2e22 var(--op,72%));}
+    .opacity-val{font-size:0.6rem;color:#3a5a4a;width:28px;text-align:right;}
+    .year-display{text-align:center;margin-bottom:10px;}
+    .year-num{font-size:2.8rem;font-weight:800;color:#2ecc71;line-height:1;text-shadow:0 0 30px rgba(46,204,113,0.3);}
+    .year-sub{font-size:0.68rem;color:#6a9a88;margin-top:2px;}
+    input[type=range]{width:100%;-webkit-appearance:none;height:3px;border-radius:2px;background:linear-gradient(to right,#2ecc71 var(--pct,0%),#1a2e22 var(--pct,0%));outline:none;cursor:pointer;}
+    input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#2ecc71;border:2px solid #0d1612;cursor:pointer;box-shadow:0 0 8px rgba(46,204,113,0.5);}
+    .year-labels{display:flex;justify-content:space-between;font-size:0.55rem;color:#3a5a4a;margin-top:5px;}
+    .year-note{background:#1a2e22;border-left:3px solid #27ae60;border-radius:0 6px 6px 0;padding:8px 10px;font-size:0.68rem;color:#a0c9b8;line-height:1.5;margin-top:10px;}
+    .year-note strong{color:#2ecc71;}
+    .predict-card{display:none;background:linear-gradient(135deg,#1a1a2e,#162e22);border:1.5px solid #9b59b6;border-radius:8px;padding:12px;margin-top:10px;}
+    .predict-card.show{display:block;}
+    .predict-card h3{color:#9b59b6;font-size:0.72rem;font-weight:700;margin-bottom:6px;}
+    .predict-card p{font-size:0.68rem;color:#a0c9b8;line-height:1.5;margin-bottom:8px;}
+    .predict-bullets{list-style:none;padding:0;margin:0;}
+    .predict-bullets li{font-size:0.67rem;color:#b0a0c8;padding:3px 0;padding-left:12px;position:relative;}
+    .predict-bullets li::before{content:'→';position:absolute;left:0;color:#9b59b6;}
+    /* Predicted year badge shown next to the year number */
+    .predict-badge{display:none;background:linear-gradient(90deg,#6c3483,#9b59b6);color:#fff;font-size:0.6rem;font-weight:700;padding:2px 7px;border-radius:10px;vertical-align:middle;margin-left:6px;letter-spacing:0.5px;}
+    .predict-badge.show{display:inline-block;}
+    /* Predicted year label gap in slider */
+    .year-labels .pred-gap{display:inline-block;width:14px;}
+    .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+    .stat{background:#162e22;border:1px solid #1a2e22;border-radius:6px;padding:8px;text-align:center;}
+    .stat .v{font-size:1.3rem;font-weight:bold;color:#2ecc71;}
+    .stat .l{font-size:0.58rem;color:#6a9a88;margin-top:1px;}
+    .stat.red .v{color:#e74c3c;}
+    .stat.amber .v{color:#f39c12;}
+    .trend{border-radius:6px;padding:7px 10px;font-size:0.72rem;margin-top:6px;text-align:center;font-weight:500;}
+    .trend.up{background:rgba(46,204,113,0.1);border:1px solid #27ae60;color:#2ecc71;}
+    .trend.down{background:rgba(231,76,60,0.1);border:1px solid #e74c3c;color:#e74c3c;}
+    .trend.neutral{background:rgba(243,156,18,0.1);border:1px solid #f39c12;color:#f39c12;}
+    .hover-box{background:#162e22;border:1px solid #1a2e22;border-radius:6px;padding:10px;font-size:0.75rem;color:#a0c9b8;min-height:60px;line-height:1.5;}
+    .hover-box .big{font-size:1rem;font-weight:bold;margin-bottom:2px;}
+    .hover-box .sub{font-size:0.65rem;color:#6a9a88;}
+    .pct-bar{height:6px;background:#1a2e22;border-radius:3px;margin:6px 0 4px;overflow:hidden;}
+    .pct-fill{height:100%;border-radius:3px;transition:width 0.3s;}
+    .leg-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:0.7rem;color:#a0c9b8;line-height:1.3;}
+    .leg-swatch{width:16px;height:16px;border-radius:50%;flex-shrink:0;}
+    .leg-main{font-weight:600;color:#e0f0eb;}
+    .leg-sub{font-size:0.62rem;color:#6a9a88;}
+    /* Legend blocks — both always visible, inactive one dimmed */
+    .legend-block{border:1px solid #1a2e22;border-radius:8px;padding:10px 10px 6px;margin-bottom:10px;opacity:0.38;transition:opacity 0.3s,border-color 0.3s;}
+    .legend-block.active-legend{opacity:1;border-color:#27ae60;}
+    .legend-mode-label{font-size:0.6rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#27ae60;border:1px solid #27ae60;border-radius:12px;display:inline-block;padding:2px 8px;margin-bottom:8px;}
+    .chart-sec{padding:12px 14px 48px;}
+    .chart-sec h2{font-size:0.6rem;text-transform:uppercase;letter-spacing:2px;color:#27ae60;margin-bottom:8px;}
+    .scroll-hint{position:sticky;bottom:0;text-align:center;font-size:0.62rem;color:#27ae60;padding:8px;background:linear-gradient(transparent,#0f1a16 55%);pointer-events:none;transition:opacity 0.3s;}
+    .scroll-hint.hidden{opacity:0;}
+    #presenter-note{background:linear-gradient(90deg,#1a2e22,#162e22);border-top:1px solid #27ae60;border-bottom:1px solid #1a2e22;padding:7px 24px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;font-size:0.72rem;}
+    #help-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:10000;align-items:center;justify-content:center;}
+    #help-overlay.show{display:flex;}
+    #signin-btn{background:#162e22;border:1px solid #27ae60;border-radius:20px;padding:4px 14px;font-size:0.68rem;color:#2ecc71;font-weight:bold;cursor:pointer;transition:all 0.2s;}
+    #signin-btn:hover{background:#1a3a28;}
+    #signin-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:10002;align-items:center;justify-content:center;}
+    #signin-modal.show{display:flex;}
+    #signin-box{background:#162e22;border:2px solid #27ae60;border-radius:14px;padding:24px 28px;width:340px;position:relative;}
+    #signin-box h2{color:#2ecc71;font-size:1rem;margin-bottom:4px;}
+    #signin-box p{color:#6a9a88;font-size:0.72rem;margin-bottom:16px;}
+    /* Why sign in collapsible */
+    .why-signin-toggle{background:none;border:1px solid #1a3a28;border-radius:6px;color:#3a5a4a;font-size:0.65rem;cursor:pointer;padding:5px 10px;width:100%;text-align:left;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;transition:color 0.2s,border-color 0.2s;}
+    .why-signin-toggle:hover{color:#6a9a88;border-color:#27ae60;}
+    .why-signin-body{max-height:0;overflow:hidden;background:#0d1612;border-radius:6px;transition:max-height 0.3s ease,padding 0.3s ease;padding:0 12px;}
+    .why-signin-body.open{max-height:400px;padding:10px 12px;margin-bottom:12px;}
+    .why-item{display:flex;gap:8px;align-items:flex-start;margin-bottom:7px;font-size:0.67rem;color:#6a9a88;line-height:1.4;}
+    .why-item:last-child{margin-bottom:0;}
+    .why-icon{font-size:0.9rem;flex-shrink:0;margin-top:1px;}
+    /* Action modals (petition, pledge, live-here) */
+    .action-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:10003;align-items:center;justify-content:center;}
+    .action-modal.show{display:flex;}
+    .action-box{background:#162e22;border:2px solid #27ae60;border-radius:14px;padding:24px 28px;width:380px;max-width:94vw;position:relative;max-height:90vh;overflow-y:auto;}
+    .action-box h2{color:#2ecc71;font-size:1rem;margin-bottom:4px;}
+    .action-box .sub{color:#6a9a88;font-size:0.72rem;margin-bottom:16px;line-height:1.5;}
+    .action-box label{display:block;font-size:0.7rem;color:#6a9a88;margin-bottom:3px;margin-top:10px;}
+    .action-box label:first-of-type{margin-top:0;}
+    .action-box input,.action-box textarea,.action-box select{width:100%;background:#0d1612;border:1px solid #1a3a28;border-radius:6px;color:#e0f0eb;padding:8px 10px;font-size:0.8rem;outline:none;font-family:inherit;box-sizing:border-box;}
+    .action-box input:focus,.action-box textarea:focus,.action-box select:focus{border-color:#27ae60;}
+    .action-box textarea{resize:none;height:72px;}
+    .action-box select option{background:#162e22;}
+    .consent-row{display:flex;gap:8px;align-items:flex-start;margin-top:12px;font-size:0.68rem;color:#6a9a88;line-height:1.4;}
+    .consent-row input[type=checkbox]{width:auto;margin-top:2px;flex-shrink:0;accent-color:#27ae60;}
+    .action-btns{display:flex;gap:8px;margin-top:14px;}
+    .action-btn{flex:1;padding:9px;border-radius:6px;border:none;cursor:pointer;font-size:0.8rem;font-weight:bold;}
+    .action-btn.primary{background:#27ae60;color:white;}
+    .action-btn.secondary{background:#1a2e22;color:#6a9a88;border:1px solid #3a5a4a;}
+    .action-success{display:none;text-align:center;padding:16px 0 8px;}
+    .action-success .tick{font-size:2rem;margin-bottom:8px;}
+    .action-success p{color:#6a9a88;font-size:0.75rem;line-height:1.5;}
+    /* Pledge options */
+    .pledge-opts{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:4px;}
+    .pledge-opt{background:#0d1612;border:1.5px solid #1a3a28;border-radius:8px;padding:8px 10px;cursor:pointer;font-size:0.7rem;color:#a0c9b8;text-align:center;transition:border-color 0.2s,background 0.2s;line-height:1.4;}
+    .pledge-opt:hover{border-color:#27ae60;background:#1a2e22;}
+    .pledge-opt.selected{border-color:#2ecc71;background:#1a2e22;color:#2ecc71;}
+    #signin-box input{width:100%;background:#0d1612;border:1px solid #27ae60;border-radius:6px;color:#e0f0eb;padding:9px 12px;font-size:0.82rem;margin-bottom:10px;outline:none;}
+    .signin-btns{display:flex;gap:8px;}
+    .signin-btn{flex:1;padding:9px;border-radius:6px;border:none;cursor:pointer;font-size:0.78rem;font-weight:bold;}
+    .signin-btn.primary{background:#27ae60;color:white;}
+    .signin-btn.secondary{background:#1a2e22;color:#6a9a88;border:1px solid #3a5a4a;}
+    #feedback-btn{position:fixed;bottom:80px;left:24px;width:48px;height:48px;border-radius:50%;background:#27ae60;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1.3rem;box-shadow:0 4px 16px rgba(39,174,96,0.4);z-index:9990;transition:transform 0.2s;}
+    #feedback-btn:hover{transform:scale(1.1);}
+    #feedback-panel{position:fixed;bottom:140px;left:24px;width:320px;background:#162e22;border:1px solid #27ae60;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,0.5);z-index:9989;display:none;flex-direction:column;max-height:480px;}
+    #feedback-panel.show{display:flex;}
+    .fb-header{padding:14px 16px;border-bottom:1px solid #1a2e22;display:flex;justify-content:space-between;align-items:center;}
+    .fb-header h3{color:#2ecc71;font-size:0.85rem;font-weight:700;}
+    .fb-header button{background:none;border:none;color:#3a5a4a;cursor:pointer;font-size:0.9rem;}
+    .fb-comments{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:8px;}
+    .fb-comment{background:#1a2e22;border-radius:8px;padding:10px 12px;}
+    .fb-comment .author{font-size:0.68rem;color:#27ae60;font-weight:bold;margin-bottom:3px;}
+    .fb-comment .text{font-size:0.75rem;color:#a0c9b8;line-height:1.4;}
+    .fb-comment .ts{font-size:0.6rem;color:#3a5a4a;margin-top:4px;}
+    .fb-empty{color:#3a5a4a;font-size:0.75rem;text-align:center;padding:20px;}
+    .fb-form{padding:12px 14px;border-top:1px solid #1a2e22;}
+    .fb-form textarea{width:100%;background:#0d1612;border:1px solid #1a2e22;border-radius:6px;color:#e0f0eb;padding:8px 10px;font-size:0.75rem;resize:none;height:72px;outline:none;font-family:inherit;}
+    .fb-form textarea:focus{border-color:#27ae60;}
+    .fb-form textarea::placeholder{color:#3a5a4a;}
+    .fb-submit{width:100%;margin-top:8px;background:#27ae60;border:none;border-radius:6px;color:white;padding:8px;font-size:0.78rem;font-weight:bold;cursor:pointer;}
+    .fb-submit:hover{background:#2ecc71;}
+    .fb-signin-prompt{font-size:0.7rem;color:#6a9a88;text-align:center;padding:8px;}
+    /* ── Community section ── */
+    .community-counts{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;}
+    .comm-badge{font-size:0.62rem;padding:3px 8px;border-radius:10px;font-weight:700;border:1px solid;}
+    .comm-badge.live{background:rgba(46,204,113,0.12);border-color:#2ecc71;color:#2ecc71;}
+    .comm-badge.work{background:rgba(52,152,219,0.12);border-color:#3498db;color:#3498db;}
+    .comm-badge.school{background:rgba(241,196,15,0.12);border-color:#f1c40f;color:#f1c40f;}
+    .comm-badge.pledge{background:rgba(155,89,182,0.12);border-color:#9b59b6;color:#9b59b6;}
+    .comm-feed{display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto;margin-top:8px;}
+    .comm-item{background:#1a2e22;border-radius:8px;padding:8px 10px;border-left:3px solid #1a3a28;}
+    .comm-item.live{border-left-color:#2ecc71;}
+    .comm-item.work{border-left-color:#3498db;}
+    .comm-item.school{border-left-color:#f1c40f;}
+    .comm-item.pledge{border-left-color:#9b59b6;}
+    .comm-item .ci-top{display:flex;align-items:center;gap:6px;margin-bottom:3px;}
+    .comm-item .ci-type{font-size:0.6rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;}
+    .comm-item .ci-name{font-size:0.65rem;color:#a0c9b8;}
+    .comm-item .ci-text{font-size:0.68rem;color:#6a9a88;line-height:1.4;}
+    .comm-item .ci-time{font-size:0.58rem;color:#3a5a4a;margin-top:3px;}
+    .comm-empty{font-size:0.72rem;color:#3a5a4a;text-align:center;padding:14px 0;}
+    /* Mark type selector */
+    .mark-types{display:flex;gap:8px;margin:8px 0;}
+    .mark-type{flex:1;background:#0d1612;border:2px solid #1a3a28;border-radius:8px;padding:10px 6px;cursor:pointer;text-align:center;font-size:0.72rem;color:#6a9a88;transition:all 0.2s;}
+    .mark-type:hover{border-color:#27ae60;color:#a0c9b8;}
+    .mark-type.selected.live{border-color:#2ecc71;background:rgba(46,204,113,0.1);color:#2ecc71;}
+    .mark-type.selected.work{border-color:#3498db;background:rgba(52,152,219,0.1);color:#3498db;}
+    .mark-type.selected.school{border-color:#f1c40f;background:rgba(241,196,15,0.1);color:#f1c40f;}
+    .mark-type .mt-icon{font-size:1.3rem;display:block;margin-bottom:3px;}
+    /* Consent gate */
+    .consent-gate{background:rgba(231,76,60,0.08);border:1px solid rgba(231,76,60,0.3);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:0.68rem;color:#e0b0a8;line-height:1.5;}
+    .consent-gate strong{color:#e74c3c;}
+    /* Anon toggle */
+    .anon-row{display:flex;align-items:center;justify-content:space-between;margin:10px 0 2px;font-size:0.7rem;color:#6a9a88;}
+    /* Map cursor for mark mode */
+    body.mark-mode #map,body.mark-mode #map *{cursor:crosshair!important;}
+    /* Take Action button */
+    #take-action-btn{position:fixed;bottom:80px;left:82px;width:48px;height:48px;border-radius:50%;background:#9b59b6;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1.1rem;box-shadow:0 4px 16px rgba(155,89,182,0.45);z-index:9990;transition:transform 0.2s;}
+    #take-action-btn:hover{transform:scale(1.1);}
+    #settings-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10001;align-items:center;justify-content:center;}
+    #settings-overlay.show{display:flex;}
+    #settings-box{background:#162e22;border:2px solid #27ae60;border-radius:14px;padding:24px 28px;width:360px;max-width:92vw;position:relative;}
+    #settings-box h2{color:#2ecc71;font-size:1rem;margin-bottom:4px;}
+    #settings-box .sub{color:#6a9a88;font-size:0.7rem;margin-bottom:18px;}
+    .settings-section{margin-bottom:18px;}
+    .settings-section h3{font-size:0.62rem;text-transform:uppercase;letter-spacing:2px;color:#27ae60;margin-bottom:10px;}
+    .setting-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+    .setting-label{font-size:0.78rem;color:#a0c9b8;font-weight:500;}
+    .setting-label span{display:block;font-size:0.62rem;color:#3a5a4a;margin-top:1px;}
+    .font-btns{display:flex;gap:6px;}
+    .font-btn{background:#1a2e22;border:1px solid #3a5a4a;border-radius:6px;color:#a0c9b8;padding:5px 12px;cursor:pointer;font-size:0.75rem;transition:all 0.2s;}
+    .font-btn:hover,.font-btn.active{background:#27ae60;border-color:#27ae60;color:white;}
+    #settings-close{position:absolute;top:14px;right:16px;background:none;border:none;color:#6a9a88;font-size:1.2rem;cursor:pointer;}
+    body.large-text .toggle-label{font-size:0.9rem;}
+    body.large-text .hover-box{font-size:0.9rem;}
+    body.large-text .stat .v{font-size:1.6rem;}
+    body.large-text .year-note{font-size:0.82rem;}
+    body.xl-text .hover-box{font-size:1.05rem;}
+    body.xl-text .stat .v{font-size:1.9rem;}
+    #tts-indicator{display:none;position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:#9b59b6;color:white;padding:6px 16px;border-radius:20px;font-size:0.75rem;font-weight:bold;z-index:9997;pointer-events:none;}
+    #tts-indicator.show{display:block;}
+    footer{background:#0d1612;border-top:1px solid #1a2e22;padding:4px 20px;font-size:0.6rem;color:#3a5a4a;display:flex;justify-content:space-between;flex-shrink:0;}
+    .hypothesis{background:linear-gradient(135deg,#1a2e22,#162e22);border:1px solid #27ae60;border-radius:8px;padding:12px;margin-top:10px;font-size:0.7rem;color:#a0c9b8;line-height:1.6;}
+    .hypothesis strong{color:#2ecc71;display:block;margin-bottom:4px;font-size:0.72rem;}
+    .leaflet-popup-content-wrapper{background:#162e22;border:1px solid #27ae60;border-radius:8px;color:#e0f0eb;box-shadow:0 4px 20px rgba(0,0,0,0.5);}
+    .leaflet-popup-tip{background:#162e22;}
+    .leaflet-popup-content{margin:10px 14px;font-size:0.78rem;}
+    .pp{font-weight:bold;margin-bottom:3px;font-size:0.85rem;}
+    #device-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.82);z-index:20000;align-items:center;justify-content:center;}
+    #device-modal.show{display:flex;}
+    #device-box{background:#162e22;border:2px solid #27ae60;border-radius:16px;padding:28px 32px;max-width:400px;width:90%;text-align:center;}
+    #device-box h2{color:#2ecc71;font-size:1.1rem;margin-bottom:6px;}
+    #device-box p{color:#6a9a88;font-size:0.75rem;margin-bottom:20px;line-height:1.5;}
+    .device-btns{display:flex;flex-direction:column;gap:10px;}
+    .device-btn{background:#1a2e22;border:1.5px solid #27ae60;border-radius:10px;color:#e0f0eb;padding:12px 16px;cursor:pointer;font-size:0.85rem;font-weight:600;display:flex;align-items:center;gap:12px;transition:background 0.2s;}
+    .device-btn:hover{background:#27ae60;}
+    .device-btn .icon{font-size:1.4rem;}
+    .device-btn .desc{text-align:left;}
+    .device-btn .desc span{display:block;font-size:0.65rem;color:#6a9a88;font-weight:400;margin-top:1px;}
+    body.layout-tablet{overflow:hidden;height:100vh;}
+    body.layout-tablet .main{position:relative;height:calc(100vh - 48px);overflow:hidden;flex-direction:row;}
+    body.layout-tablet #map{position:absolute;inset:0;width:100%;height:100%;flex:none;order:unset;}
+    body.layout-tablet #sidebar-toggle{position:fixed!important;bottom:0;left:0;width:100%;z-index:2000;order:unset;flex-direction:row;padding:9px 16px;padding-bottom:calc(9px + env(safe-area-inset-bottom));gap:8px;justify-content:center;font-size:0.72rem;background:#0f1a16;border:none;border-top:2px solid #27ae60;border-radius:0;box-shadow:none;flex-shrink:0;transform:none;top:auto;right:auto;}
+    body.layout-tablet #sidebar-toggle.open{display:none!important;}
+    body.layout-tablet .sidebar{position:fixed;bottom:0;left:0;width:100%;max-height:65vh;overflow-y:auto;z-index:1500;border-top:1px solid #27ae60;border-left:none;flex:none;order:unset;transition:max-height 0.3s ease,opacity 0.2s ease;}
+    body.layout-tablet .sidebar.collapsed{max-height:0!important;opacity:0;overflow:hidden;border-top:none;}
+    body.layout-phone{overflow:hidden;height:100vh;}
+    body.layout-phone .main{position:relative;height:calc(100vh - 48px);overflow:hidden;flex-direction:row;}
+    body.layout-phone #map{position:absolute;inset:0;width:100%;height:100%;flex:none;order:unset;}
+    body.layout-phone #sidebar-toggle{position:fixed!important;bottom:0;left:0;width:100%;z-index:2000;order:unset;flex-direction:row;padding:9px 16px;padding-bottom:calc(9px + env(safe-area-inset-bottom));gap:8px;justify-content:center;font-size:0.72rem;background:#0f1a16;border:none;border-top:2px solid #27ae60;border-radius:0;box-shadow:none;flex-shrink:0;transform:none;top:auto;right:auto;}
+    body.layout-phone #sidebar-toggle.open{display:none!important;}
+    body.layout-phone .sidebar{position:fixed;bottom:0;left:0;width:100%;max-height:65vh;overflow-y:auto;z-index:1500;border-top:1px solid #27ae60;border-left:none;flex:none;order:unset;transition:max-height 0.3s ease,opacity 0.2s ease;}
+    body.layout-phone .sidebar.collapsed{max-height:0!important;opacity:0;overflow:hidden;border-top:none;}
+    body.layout-phone footer{display:none;}
+    body.layout-phone #mobile-panel-handle,body.layout-tablet #mobile-panel-handle{display:flex!important;}
+    body.layout-phone #mobile-menu-btn,body.layout-tablet #mobile-menu-btn{display:flex!important;}
+    body.layout-phone #feedback-btn,body.layout-phone #take-action-btn,body.layout-tablet #feedback-btn,body.layout-tablet #take-action-btn{display:none!important;}
+    body.layout-phone #mobile-action-bar,body.layout-tablet #mobile-action-bar{display:flex!important;}
+    body.layout-phone #presenter-note,body.layout-tablet #presenter-note{display:none!important;}
+    body.layout-phone #presenter-sidebar,body.layout-tablet #presenter-sidebar{display:block!important;}
+    body.layout-phone #site-switcher,body.layout-tablet #site-switcher{position:fixed!important;bottom:58px;z-index:2100;}
+    @media(max-width:768px){
+      /* ── Layout ── */
+      body{overflow:hidden;height:100vh;}
+      .main{flex-direction:column;height:100%;overflow:hidden;}
+      #map{height:32vh;min-height:180px;flex:none;}
+      .sidebar{width:100%;border-left:none;border-top:1px solid #1a2e22;overflow-y:auto;flex:1;}
+
+      /* ── Header ── */
+      header{padding:8px 12px;gap:6px;}
+      .hl{flex:1;min-width:0;}
+      .hl h1{font-size:1rem;white-space:normal;overflow:visible;line-height:1.2;}
+      .hl p{display:none;}
+      /* Hide all header action buttons — replaced by ⋮ menu */
+      .hr .badge,.hr #signin-btn{display:none!important;}
+      .hr{gap:5px;flex-shrink:0;}
+      /* Mobile overflow menu button */
+      #mobile-menu-btn{display:flex!important;}
+
+      /* ── Site switcher — above toggle bar, clear of it ── */
+      #site-switcher{position:fixed!important;bottom:58px;max-width:94vw;z-index:2100;}
+      #site-name-display{min-width:120px;font-size:0.72rem;}
+      .sw-arrow{padding:6px 10px;}
+
+      /* ── Sidebar sections ── */
+      .sec{padding:10px 12px;}
+      .sec h2{font-size:0.58rem;margin-bottom:8px;}
+      .toggle-label{font-size:0.72rem;}
+
+      /* ── Year slider — prevent label overflow ── */
+      .year-labels{font-size:0.48rem;gap:0;}
+      .year-labels span{flex:1;text-align:center;}
+      .year-labels .pred-gap{flex:0 0 8px;}
+      #yr-slider{width:100%;}
+
+      /* ── Year display ── */
+      #yr-label{font-size:2.2rem!important;}
+
+      /* ── Snapshot numbers ── */
+      .stat .v{font-size:1.1rem;}
+      .stat .l{font-size:0.55rem;}
+
+      /* ── Chart ── */
+      #trendChart{max-height:140px;}
+
+      /* ── Feedback button — move above site switcher ── */
+      #feedback-btn,#take-action-btn{display:none!important;}
+      #feedback-panel{left:12px;width:calc(100vw - 24px);bottom:60px;max-height:60vh;}
+      #mobile-action-bar{display:flex!important;}
+      #mobile-panel-handle{display:flex!important;}
+
+      /* ── Presenter note ── */
+      #presenter-note{display:none!important;}
+      #presenter-sidebar{display:block!important;}
+
+      /* ── Modals ── */
+      .action-box{padding:16px 14px;width:calc(100vw - 24px);}
+
+      /* ── Footer ── */
+      footer{font-size:0.58rem;padding:4px 12px;flex-wrap:wrap;gap:2px;}
+    }
+    #share-toast{display:none;position:fixed;top:54px;right:24px;background:#27ae60;color:white;padding:6px 16px;border-radius:20px;font-size:0.72rem;font-weight:bold;z-index:10004;pointer-events:none;opacity:0;transition:opacity 0.3s;}
+    /* Mobile action bar */
+    #mobile-action-bar{padding:10px 12px;gap:8px;border-top:1px solid #1a2e22;background:#0f1a16;}
+    .mob-action-btn{flex:1;padding:10px 8px;border-radius:8px;border:1.5px solid #27ae60;background:#162e22;color:#2ecc71;font-size:0.78rem;font-weight:700;cursor:pointer;text-align:center;}
+    .mob-action-btn.purple{border-color:#9b59b6;background:rgba(155,89,182,0.12);color:#9b59b6;}
+  @keyframes panel-nudge{0%{transform:translateY(0);}15%{transform:translateY(-12px);}30%{transform:translateY(0);}42%{transform:translateY(-8px);}54%{transform:translateY(0);}63%{transform:translateY(-4px);}72%{transform:translateY(0);}80%{transform:translateY(-2px);}88%,100%{transform:translateY(0);}}
+  #sidebar-toggle.nudge{animation:panel-nudge 0.9s cubic-bezier(0.36,0.07,0.19,0.97) 1.0s 3 both;}
+  </style>
+</head>
+<body>
+
+<div id="device-modal" class="show">
+  <div id="device-box">
+    <h2>👋 Welcome to Code Green</h2>
+    <p>What device are you using?</p>
+    <div class="device-btns">
+      <button class="device-btn" onclick="setDevice('desktop')"><span class="icon">💻</span><div class="desc">Desktop / Laptop<span>Full map + sidebar layout</span></div></button>
+      <button class="device-btn" onclick="setDevice('tablet')"><span class="icon">📱</span><div class="desc">Tablet<span>Stacked layout, larger touch targets</span></div></button>
+      <button class="device-btn" onclick="setDevice('phone')"><span class="icon">📲</span><div class="desc">Phone<span>Compact layout</span></div></button>
+    </div>
+  </div>
+</div>
+
+<header>
+  <div class="hl">
+    <h1 id="site-title">🌿 Code Green — Wilmington Green Space Tracker</h1>
+    <p id="site-subtitle">YSA Global STEM Ambassadors · NASA/USGS Satellite Data · Wilmington, NC · 2019–2026</p>
+  </div>
+  <div class="hr">
+    <div class="badge" onclick="document.getElementById('help-overlay').classList.add('show')">❓ Help</div>
+    <div class="badge" onclick="shareLink()">🔗 Share</div>
+    <div class="badge" onclick="document.getElementById('settings-overlay').classList.add('show')" style="font-size:1rem;padding:4px 10px;">⚙️</div>
+    <button id="signin-btn" onclick="openSignin()">👤 Sign In</button>
+    <!-- Mobile-only overflow menu -->
+    <button id="mobile-menu-btn" onclick="toggleMobileMenu()" style="display:none;background:#1a2e22;border:1.5px solid #27ae60;border-radius:8px;color:#2ecc71;font-size:1.1rem;padding:5px 10px;cursor:pointer;line-height:1;">⋮</button>
+  </div>
+  <!-- Mobile dropdown menu -->
+  <div id="mobile-menu-dropdown" style="display:none;position:fixed;top:48px;right:0;left:0;background:#0f1a16;border-bottom:2px solid #27ae60;z-index:5000;padding:8px 12px;flex-direction:column;gap:6px;">
+    <button onclick="openSignin();toggleMobileMenu()" style="background:#1a2e22;border:1px solid #27ae60;border-radius:8px;color:#e0f0eb;padding:10px 14px;text-align:left;font-size:0.82rem;cursor:pointer;">👤 <span id="mobile-signin-label">Sign In</span></button>
+    <button onclick="document.getElementById('help-overlay').classList.add('show');toggleMobileMenu()" style="background:#1a2e22;border:1px solid #27ae60;border-radius:8px;color:#e0f0eb;padding:10px 14px;text-align:left;font-size:0.82rem;cursor:pointer;">❓ Help</button>
+    <button onclick="shareLink();toggleMobileMenu()" style="background:#1a2e22;border:1px solid #27ae60;border-radius:8px;color:#e0f0eb;padding:10px 14px;text-align:left;font-size:0.82rem;cursor:pointer;">🔗 Share</button>
+    <button onclick="document.getElementById('settings-overlay').classList.add('show');toggleMobileMenu()" style="background:#1a2e22;border:1px solid #27ae60;border-radius:8px;color:#e0f0eb;padding:10px 14px;text-align:left;font-size:0.82rem;cursor:pointer;">⚙️ Settings</button>
+  </div>
+</header>
+
+<div class="main">
+  <!-- Sidebar toggle tab — anchored to the left edge of the sidebar -->
+  <button id="sidebar-toggle" class="open" onclick="toggleSidebar()" title="Show/hide panel">
+    <span class="toggle-chevron">›</span>
+    <span style="font-size:0.65rem;letter-spacing:0.5px;opacity:0.8;" id="toggle-label">PANEL</span>
+  </button>
+  <div id="map">
+    <!-- Site switcher overlaid on map -->
+    <div id="site-switcher">
+      <button class="sw-arrow" onclick="cycleSite(-1)">&#8592;</button>
+      <span id="site-name-display">🇺🇸 Wilmington, NC</span>
+      <button class="sw-arrow" onclick="cycleSite(1)">&#8594;</button>
+      <div class="sw-dots">
+        <div class="sw-dot active" id="dot-0"></div>
+        <div class="sw-dot" id="dot-1"></div>
+        <div class="sw-dot" id="dot-2"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sidebar">
+    <!-- Mobile drag handle / hide button — top of bottom sheet -->
+    <button id="mobile-panel-handle" onclick="toggleSidebar()" style="display:none;align-items:center;justify-content:center;gap:8px;padding:10px 16px;cursor:pointer;background:#0f1a16;border:none;border-bottom:1px solid #1a2e22;width:100%;font-size:0.72rem;color:#6a9a88;letter-spacing:0.05em;flex-shrink:0;touch-action:manipulation;">▲ Hide Panel</button>
+    <!-- Presenter's Note — sidebar version (shown on mobile, hidden on desktop) -->
+    <div class="sec" id="presenter-sidebar" style="display:none;background:linear-gradient(135deg,#1a2e22,#0f1a16);border-left:3px solid #27ae60;">
+      <h2 onclick="togglePresenterSidebar()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;color:#2ecc71;">
+        📋 Presenter's Note <span id="presenter-sidebar-arrow" style="font-size:0.8rem;transition:transform 0.25s;display:inline-block;">▼</span>
+      </h2>
+      <div id="presenter-sidebar-body" style="overflow:hidden;transition:max-height 0.35s ease;max-height:0;">
+        <p id="presenter-sidebar-text" style="font-size:0.72rem;color:#a0c9b8;line-height:1.6;padding-top:6px;"></p>
+      </div>
+    </div>
+
+    <div class="sec">
+      <h2 onclick="toggleControls()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;">Controls <span id="controls-arrow" style="font-size:0.8rem;transition:transform 0.25s;display:inline-block;">▲</span></h2>
+      <div id="controls-body" style="overflow:hidden;transition:max-height 0.3s ease;max-height:400px;">
+        <div class="toggle-row tip-below" data-tip="Switches between a dark and light base map. Dark is easier to read on-screen; light reveals more street-level detail underneath the data circles.">
+          <div class="toggle-label">🌙 Dark Mode<span>Toggle dark or light base map</span></div>
+          <label class="switch"><input type="checkbox" id="sw-dark" checked onchange="toggleMapStyle(this.checked)"/><span class="sw-slider"></span></label>
+        </div>
+        <div class="toggle-row tip-below" data-tip="Overlays real Sentinel-2 satellite imagery from NASA/USGS for the selected year. Compare the colored dots to the actual land cover beneath — you can see forests, fields, and paved areas directly.">
+          <div class="toggle-label">🛰️ Satellite View<span>Show real satellite imagery</span></div>
+          <label class="switch"><input type="checkbox" id="sw-sat" onchange="toggleSatellite(this.checked)"/><span class="sw-slider"></span></label>
+        </div>
+        <div class="toggle-row" data-tip="Toggle named location pins (parks, universities, key buildings). Helps orient your audience to familiar places while discussing green space data.">
+          <div class="toggle-label">📍 Show Landmarks<span>Toggle landmark pins</span></div>
+          <label class="switch"><input type="checkbox" id="sw-landmarks" checked onchange="toggleLandmarks(this.checked)"/><span class="sw-slider"></span></label>
+        </div>
+        <div class="toggle-row" data-tip="Show or hide the colored circles. Each circle covers roughly one 600m tile analyzed by OpenCV for vegetation. Hide them to see the satellite imagery or base map unobstructed.">
+          <div class="toggle-label">⚬ Show Data Points<span>Show or hide green score circles</span></div>
+          <label class="switch"><input type="checkbox" id="sw-dots" checked onchange="toggleDots(this.checked)"/><span class="sw-slider"></span></label>
+        </div>
+        <!-- Opacity — lives directly with Show Data Points -->
+        <div class="opacity-row toggle-row" data-tip="Controls how transparent the data circles are. Lower = more see-through (good with satellite view). Drag to 0 to hide circles entirely." style="margin-top:-2px;margin-bottom:8px;padding-left:12px;border-left:2px solid #1a3a28;">
+          <label style="width:48px;font-size:0.6rem;color:#3a5a4a;white-space:nowrap;">Opacity</label>
+          <input type="range" id="opacity-slider" min="0" max="100" value="72" oninput="updateOpacity(this.value)" style="flex:1;height:3px;background:linear-gradient(to right,#2ecc71 var(--op,72%),#1a2e22 var(--op,72%));"/>
+          <span class="opacity-val" id="opacity-val">72%</span>
+        </div>
+        <!-- Dot Options sub-panel (Change vs 2019 + Policy Threshold) -->
+        <div style="margin-bottom:10px;">
+          <button onclick="toggleDotOptions()" id="dot-opts-btn" style="width:100%;background:#0f1f18;border:1px solid #1a3a28;border-radius:6px;padding:5px 10px;color:#3a5a4a;font-size:0.62rem;cursor:pointer;display:flex;align-items:center;justify-content:space-between;transition:border-color 0.2s,color 0.2s;">
+            <span>⚙ Dot Display Options</span>
+            <span id="dot-opts-arrow" style="transition:transform 0.2s;display:inline-block;">▼</span>
+          </button>
+          <div id="dot-opts-body" style="overflow:hidden;max-height:0;transition:max-height 0.25s ease;padding-left:10px;border-left:2px solid #1a3a28;margin-top:4px;">
+            <div style="padding-top:6px;">
+              <div class="toggle-row" data-tip="Recolors every dot relative to its own 2019 baseline. Green = more vegetation than 2019. Red = vegetation lost since 2019. Grey = roughly unchanged. Shows trend and change, not raw greenness.">
+                <div class="toggle-label">📊 Change vs 2019<span>Recolor by gain/loss since baseline</span></div>
+                <label class="switch"><input type="checkbox" id="sw-relative" onchange="toggleRelative(this.checked)"/><span class="sw-slider"></span></label>
+              </div>
+              <div class="toggle-row" style="margin-top:2px;" data-tip="Set a minimum % green target (like a city policy). Zones BELOW the threshold glow red with a white border; zones that meet it are dimmed. Use the slider to adjust the target.">
+                <div class="toggle-label">🎯 Policy Threshold<span>Highlight zones below minimum green %</span></div>
+                <label class="switch"><input type="checkbox" id="sw-policy" onchange="togglePolicy(this.checked)"/><span class="sw-slider"></span></label>
+              </div>
+              <div id="policy-controls" style="display:none;margin-top:6px;">
+                <div class="opacity-row">
+                  <label>Min green %</label>
+                  <input type="range" id="policy-slider" min="5" max="90" value="30" oninput="updatePolicyThreshold(this.value)"/>
+                  <span class="opacity-val" id="policy-val">30%</span>
+                </div>
+                <div id="policy-result" style="margin-top:6px;padding:7px 10px;background:rgba(231,76,60,0.12);border:1px solid rgba(231,76,60,0.3);border-radius:6px;font-size:0.7rem;color:#e74c3c;display:none;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <h2 onclick="toggleTimeline()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;">Timeline <span id="timeline-arrow" style="font-size:0.8rem;transition:transform 0.25s;display:inline-block;">▲</span></h2>
+      <div id="timeline-body" style="overflow:hidden;transition:max-height 0.35s ease;max-height:600px;">
+      <div class="year-display">
+        <div class="year-num" id="yr-label">2019<span class="predict-badge" id="predict-badge">🔮 Predicted</span><span class="predict-badge" id="partial-badge" style="background:rgba(230,126,34,0.15);border-color:#e67e22;color:#e67e22;">⚠️ Partial Season</span></div>
+        <div class="year-sub" id="yr-context">Pre-COVID Baseline</div>
+      </div>
+      <input type="range" id="yr-slider" min="0" max="9" value="0" oninput="onSlide(this.value)"/>
+      <div class="year-labels"><span>2019</span><span>2020</span><span>2021</span><span>2022</span><span>2023</span><span>2024</span><span>2025</span><span>2026</span><span class="pred-gap"></span><span style="color:#9b59b6">2030</span><span style="color:#9b59b6">2035</span></div>
+      <div style="text-align:center;margin-top:8px;">
+        <button id="play-btn" onclick="toggleAutoPlay()" style="background:#1a2e22;border:1px solid #27ae60;border-radius:20px;padding:5px 18px;color:#2ecc71;font-size:0.78rem;font-weight:bold;cursor:pointer;">▶ Play</button>
+      </div>
+      <div class="year-note" id="yr-note"></div>
+      <div id="data-quality-banner" style="display:none;margin:6px 0 2px;padding:7px 10px;background:rgba(230,126,34,0.15);border:1px solid rgba(230,126,34,0.4);border-radius:6px;font-size:0.7rem;color:#e6922a;line-height:1.4;">
+        <strong>⚠️ Data quality note:</strong> <span id="data-quality-msg"></span>
+      </div>
+      </div><!-- /timeline-body -->
+    </div>
+
+    <div class="sec">
+      <h2 onclick="toggleSnapshot()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;">Snapshot <span id="snapshot-arrow" style="font-size:0.8rem;transition:transform 0.25s;display:inline-block;">▲</span></h2>
+      <div id="snapshot-body" style="overflow:hidden;transition:max-height 0.35s ease;max-height:300px;">
+      <div class="stat-grid">
+        <div class="stat"><div class="v" id="s-score">—</div><div class="l">Avg Green Score</div></div>
+        <div class="stat"><div class="v" id="s-green">—</div><div class="l">Area is Green</div></div>
+        <div class="stat red"><div class="v" id="s-grey">—</div><div class="l">Developed Land</div></div>
+        <div class="stat amber"><div class="v" id="s-pts">—</div><div class="l">Locations Sampled</div></div>
+      </div>
+      <div class="trend" id="trend-badge"></div>
+      </div><!-- /snapshot-body -->
+    </div>
+
+    <div class="sec">
+      <h2 onclick="toggleSpotDetail()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;">Spot Detail <span id="spotdetail-arrow" style="font-size:0.8rem;transition:transform 0.25s;display:inline-block;">▲</span></h2>
+      <div id="spotdetail-body" style="overflow:hidden;transition:max-height 0.35s ease;max-height:300px;">
+      <div class="hover-box" id="hover-box"><span style="color:#3a5a4a">Hover any circle on the map to learn about that spot</span></div>
+      </div><!-- /spotdetail-body -->
+    </div>
+
+    <div class="sec">
+      <h2 onclick="toggleHypothesis()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;">Research &amp; Discussion <span id="hypothesis-arrow" style="font-size:0.8rem;transition:transform 0.25s;display:inline-block;">▲</span></h2>
+      <div id="hypothesis-body" style="overflow:hidden;transition:max-height 0.35s ease;max-height:600px;">
+        <div class="hypothesis" id="hypothesis-box"></div>
+        <div class="predict-card show" id="predict-card" style="margin-top:10px;">
+          <h3>🔮 Discussion Question</h3>
+          <p id="predict-text"></p>
+          <ul class="predict-bullets" id="predict-bullets"></ul>
+        </div>
+      </div><!-- /hypothesis-body -->
+    </div>
+
+    <!-- ══ COMMUNITY SECTION ══ -->
+    <div class="sec">
+      <h2 onclick="toggleCommunitySection()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;">
+        What the Community Says
+        <span id="community-arrow" style="font-size:0.8rem;transition:transform 0.25s;display:inline-block;">▲</span>
+      </h2>
+      <div id="community-body" style="overflow:hidden;transition:max-height 0.35s ease;max-height:600px;">
+        <!-- Show/hide marks toggle -->
+        <div class="toggle-row" style="margin-bottom:10px;" data-tip="Toggle all community-placed marks on the map — see where people live, work, and go to school.">
+          <div class="toggle-label">🗺️ Show Community Marks<span>Live, Work, School pins from visitors</span></div>
+          <label class="switch"><input type="checkbox" id="sw-community" onchange="toggleCommunityMarks(this.checked)"/><span class="sw-slider"></span></label>
+        </div>
+        <!-- Count badges -->
+        <div class="community-counts" id="community-counts">
+          <span class="comm-badge live" id="badge-live">🏠 0 live here</span>
+          <span class="comm-badge work" id="badge-work">💼 0 work here</span>
+          <span class="comm-badge school" id="badge-school">🎓 0 go to school</span>
+          <span class="comm-badge pledge" id="badge-pledge">🌱 0 pledges</span>
+        </div>
+        <!-- Feed -->
+        <div class="comm-feed" id="comm-feed">
+          <div class="comm-empty">Loading community activity…</div>
+        </div>
+        <!-- Add your mark CTA -->
+        <button onclick="openAddMark()" style="width:100%;margin-top:10px;background:#1a2e22;border:1.5px solid #27ae60;border-radius:8px;padding:8px;color:#2ecc71;font-size:0.75rem;font-weight:700;cursor:pointer;transition:background 0.2s;">
+          + Add Your Mark
+        </button>
+      </div>
+    </div>
+
+    <div class="sec">
+      <h2 onclick="toggleColors()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;">What the Colors Mean <span id="colors-arrow" style="font-size:0.8rem;transition:transform 0.25s;display:inline-block;">▲</span></h2>
+      <div id="colors-body" style="overflow:hidden;transition:max-height 0.35s ease;max-height:900px;">
+      <!-- Normal data points legend -->
+      <div id="legend-absolute" class="legend-block active-legend">
+        <div class="legend-mode-label">⚬ Normal Data Points</div>
+        <div class="leg-row"><div class="leg-swatch" id="sw-vhigh" style="background:#1a7a2e"></div><div><div class="leg-main">🌳 Dense Vegetation (85–100%)</div><div class="leg-sub">Forests, wetlands, dense parks</div></div></div>
+        <div class="leg-row"><div class="leg-swatch" id="sw-high" style="background:#2ecc71"></div><div><div class="leg-main">🌿 Healthy Green Space (70–85%)</div><div class="leg-sub">Lawns, gardens, suburban greenery</div></div></div>
+        <div class="leg-row"><div class="leg-swatch" id="sw-mid" style="background:#f1c40f"></div><div><div class="leg-main">🌾 Mixed (55–70%)</div><div class="leg-sub">Some vegetation, some pavement</div></div></div>
+        <div class="leg-row"><div class="leg-swatch" id="sw-low" style="background:#e67e22"></div><div><div class="leg-main">🏗 Mostly Developed (40–55%)</div><div class="leg-sub">Commercial, construction, parking</div></div></div>
+        <div class="leg-row"><div class="leg-swatch" id="sw-vlow" style="background:#e74c3c"></div><div><div class="leg-main">🏙 Heavy Urban (below 40%)</div><div class="leg-sub">Downtown core — heat island risk</div></div></div>
+      </div>
+
+      <!-- Change vs 2019 legend -->
+      <div id="legend-relative" class="legend-block">
+        <div class="legend-mode-label" style="border-color:#9b59b6;color:#9b59b6;">📊 Change vs 2019 Mode</div>
+        <div class="leg-row"><div class="leg-swatch" style="background:#1a7a2e"></div><div><div class="leg-main">Strong gain (&gt;+15%)</div><div class="leg-sub">Significantly more green than 2019</div></div></div>
+        <div class="leg-row"><div class="leg-swatch" style="background:#2ecc71"></div><div><div class="leg-main">Moderate gain (+7–15%)</div><div class="leg-sub">Noticeable green improvement</div></div></div>
+        <div class="leg-row"><div class="leg-swatch" style="background:#a8dba8"></div><div><div class="leg-main">Slight gain (+2–7%)</div><div class="leg-sub">Minor vegetation increase</div></div></div>
+        <div class="leg-row"><div class="leg-swatch" style="background:#aaaaaa;border:1.5px solid #555;"></div><div><div class="leg-main">No change (±2%)</div><div class="leg-sub">Grey dot — same as 2019 baseline</div></div></div>
+        <div class="leg-row"><div class="leg-swatch" style="background:#f5a87a"></div><div><div class="leg-main">Slight loss (−2–7%)</div><div class="leg-sub">Minor green space reduction</div></div></div>
+        <div class="leg-row"><div class="leg-swatch" style="background:#e67e22"></div><div><div class="leg-main">Moderate loss (−7–15%)</div><div class="leg-sub">Visible development or clearing</div></div></div>
+        <div class="leg-row"><div class="leg-swatch" style="background:#e74c3c"></div><div><div class="leg-main">Strong loss (&gt;−15%)</div><div class="leg-sub">Major green space lost since 2019</div></div></div>
+      </div>
+
+      <div id="legend-boxes"></div>
+      </div><!-- /colors-body -->
+    </div>
+
+    <div class="chart-sec">
+      <h2 onclick="toggleChart()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;">How Green Space Changed Over Time <span id="chart-arrow" style="font-size:0.8rem;transition:transform 0.25s;display:inline-block;transform:rotate(180deg);">▲</span></h2>
+      <div id="chart-body" style="overflow:hidden;transition:max-height 0.35s ease;max-height:0;">
+      </div><!-- /chart-body -->
+    </div>
+    <div class="scroll-hint" id="scroll-hint">↓ Scroll for more</div>
+
+    <!-- Mobile-only action bar — replaces floating FABs -->
+    <div id="mobile-action-bar" style="display:none;">
+      <button class="mob-action-btn" onclick="toggleFeedback()">💬 Comments</button>
+      <button class="mob-action-btn purple" onclick="openTakeAction()">✊ Take Action</button>
+    </div>
+  </div>
+</div>
+
+<div id="presenter-note">
+  <span>📋 <strong style="color:#2ecc71">Presenter's Note:</strong> <span id="presenter-text" style="color:#a0c9b8"></span></span>
+  <button onclick="document.getElementById('presenter-note').style.display='none'" style="background:none;border:none;color:#3a5a4a;cursor:pointer;font-size:1rem;margin-left:12px;flex-shrink:0">✕</button>
+</div>
+
+<footer>
+  <span id="footer-left">NASA/USGS Landsat 8 · Google Earth Engine · Code Green YSA 2026</span>
+  <span>Green Score = Sentinel-2 Visual HSV Analysis (OpenCV)</span>
+</footer>
+
+<!-- Help overlay -->
+<div id="help-overlay" onclick="if(event.target===this)this.classList.remove('show')">
+  <div style="background:#162e22;border:2px solid #27ae60;border-radius:14px;padding:28px 32px;max-width:520px;width:92%;position:relative;max-height:90vh;overflow-y:auto;">
+    <button onclick="document.getElementById('help-overlay').classList.remove('show')" style="position:absolute;top:14px;right:16px;background:none;border:none;color:#6a9a88;font-size:1.2rem;cursor:pointer;">✕</button>
+    <h2 style="color:#2ecc71;font-size:1.1rem;margin-bottom:2px;">❓ Help & Navigation</h2>
+    <div style="color:#6a9a88;font-size:0.72rem;margin-bottom:18px;">Code Green — Global Green Space Tracker</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px;">
+      <div style="background:#1a2e22;border-radius:6px;padding:8px 10px;font-size:0.72rem;color:#a0c9b8;">🖱️ Click & drag to move</div>
+      <div style="background:#1a2e22;border-radius:6px;padding:8px 10px;font-size:0.72rem;color:#a0c9b8;">🔍 Scroll to zoom</div>
+      <div style="background:#1a2e22;border-radius:6px;padding:8px 10px;font-size:0.72rem;color:#a0c9b8;">👆 Hover circles for details</div>
+      <div style="background:#1a2e22;border-radius:6px;padding:8px 10px;font-size:0.72rem;color:#a0c9b8;">📅 Drag slider to change year</div>
+      <div style="background:#1a2e22;border-radius:6px;padding:8px 10px;font-size:0.72rem;color:#a0c9b8;">← → Switch study sites</div>
+      <div style="background:#1a2e22;border-radius:6px;padding:8px 10px;font-size:0.72rem;color:#a0c9b8;">💬 Bottom left to comment</div>
+    </div>
+    <div style="display:flex;gap:12px;margin-bottom:12px;"><div style="font-size:1.4rem;flex-shrink:0;">🌍</div><div><div style="font-size:0.8rem;color:#e0f0eb;font-weight:600;margin-bottom:2px;">Three Study Sites</div><div style="font-size:0.72rem;color:#a0c9b8;line-height:1.5;">Use the arrow buttons on the map to cycle between Wilmington NC, Chisinau Moldova, and Lozova Moldova. Same satellite methodology across all three — enabling direct international comparison.</div></div></div>
+    <div style="display:flex;gap:12px;margin-bottom:12px;"><div style="font-size:1.4rem;flex-shrink:0;">🔬</div><div><div style="font-size:0.8rem;color:#e0f0eb;font-weight:600;margin-bottom:2px;">The Research Hypothesis</div><div style="font-size:0.72rem;color:#a0c9b8;line-height:1.5;">COVID-19 paused construction in 2020. When restrictions lifted, an accelerated development surge tested whether green infrastructure in both the US and Eastern Europe faced the same pressure.</div></div></div>
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid #1a2e22;font-size:0.68rem;color:#6a9a88;text-align:center;">Code Green · YSA Global STEM Ambassadors · 2026</div>
+  </div>
+</div>
+
+<!-- Sign-in modal -->
+<div id="signin-modal" onclick="if(event.target===this)this.classList.remove('show')">
+  <div id="signin-box">
+    <h2>👤 Sign In to Code Green</h2>
+    <p>Join the community — leave comments, sign the petition, make a pledge, and mark your neighborhood on the map.</p>
+
+    <!-- Why should I sign in? -->
+    <button class="why-signin-toggle" onclick="toggleWhySignin(this)">
+      <span>💡 Why should I sign in?</span><span id="why-arrow">▼</span>
+    </button>
+    <div class="why-signin-body" id="why-signin-body">
+      <div class="why-item"><span class="why-icon">🖊️</span><span><strong style="color:#e0f0eb">Sign the petition</strong> — add your name in support of green space policy. Collected for research purposes.</span></div>
+      <div class="why-item"><span class="why-icon">📍</span><span><strong style="color:#e0f0eb">Mark your neighborhood</strong> — show where you live, work, or go to school on the map.</span></div>
+      <div class="why-item"><span class="why-icon">🌱</span><span><strong style="color:#e0f0eb">Make a pledge</strong> — commit to an action and add your name to the pledge count.</span></div>
+      <div class="why-item"><span class="why-icon">💬</span><span><strong style="color:#e0f0eb">Leave comments</strong> — share what you notice about the data. Your name appears with your post.</span></div>
+      <div class="why-item"><span class="why-icon">💾</span><span><strong style="color:#e0f0eb">Save your pins</strong> — custom pins you drop on the map are remembered with your account.</span></div>
+      <div style="font-size:0.63rem;color:#3a5a4a;margin-top:8px;padding-top:8px;border-top:1px solid #1a2e22;">You can also continue without signing in — just enter a display name below.</div>
+    </div>
+
+    <button class="signin-btn primary" style="width:100%;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="if(window.fbSignIn){document.getElementById('signin-modal').classList.remove('show');window.fbSignIn();}">
+      <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.9 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 7.9 3l5.7-5.7C34.5 6.5 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.5 16 19 12 24 12c3.1 0 5.8 1.1 7.9 3l5.7-5.7C34.5 6.5 29.5 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.4 26.7 36 24 36c-5.2 0-9.6-3.1-11.3-7.6l-6.6 5.1C9.5 39.4 16.3 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.9 2.4-2.5 4.5-4.5 6l6.2 5.2C39.9 36.7 44 30.8 44 24c0-1.3-.1-2.6-.4-3.9z"/></svg>
+      Continue with Google
+    </button>
+    <div style="text-align:center;font-size:0.65rem;color:#3a5a4a;margin-bottom:10px;">— or use a display name —</div>
+    <input type="text" id="signin-name" placeholder="Your name or nickname" maxlength="30"/>
+    <div class="signin-btns">
+      <button class="signin-btn secondary" onclick="document.getElementById('signin-modal').classList.remove('show')">Cancel</button>
+      <button class="signin-btn primary" onclick="doSignIn()">Continue</button>
+    </div>
+  </div>
+</div>
+
+<button id="feedback-btn" onclick="toggleFeedback()" title="Leave a comment">💬</button>
+<button id="take-action-btn" onclick="openTakeAction()" title="Take Action — petition, pledge, mark your neighborhood">✊</button>
+
+<!-- ══ PETITION MODAL ══ -->
+<div class="action-modal" id="petition-modal" onclick="if(event.target===this)this.classList.remove('show')">
+  <div class="action-box">
+    <button onclick="document.getElementById('petition-modal').classList.remove('show')" style="position:absolute;top:14px;right:16px;background:none;border:none;color:#3a5a4a;cursor:pointer;font-size:1rem;">✕</button>
+    <h2>🖊️ Sign the Green Space Petition</h2>
+    <p class="sub">Add your name in support of protecting and expanding green space in Wilmington and beyond. Signatures are collected for research purposes and may contribute to something larger down the road.<br><span style="color:#3a5a4a;font-size:0.65rem;">Your name and role will be used for research purposes only. Email is optional and never shared publicly.</span></p>
+    <div id="petition-form-body">
+      <label>Full name *</label>
+      <input type="text" id="pet-name" placeholder="Your name" maxlength="80"/>
+      <label>Email <span style="color:#3a5a4a">(optional)</span></label>
+      <input type="email" id="pet-email" placeholder="you@example.com"/>
+      <label>School, organization, or affiliation</label>
+      <input type="text" id="pet-org" placeholder="e.g. UNCW, Cape Fear Academy, City of Wilmington…" maxlength="100"/>
+      <label>I am a…</label>
+      <select id="pet-role">
+        <option value="">Select your role</option>
+        <option>Student</option>
+        <option>Educator / Teacher</option>
+        <option>Researcher / Scientist</option>
+        <option>City / Government employee</option>
+        <option>Business owner</option>
+        <option>Resident / Community member</option>
+        <option>Environmental advocate</option>
+        <option>Other</option>
+      </select>
+      <label>Personal message <span style="color:#3a5a4a">(optional)</span></label>
+      <textarea id="pet-msg" placeholder="Why does green space matter to you?"></textarea>
+      <div class="consent-row">
+        <input type="checkbox" id="pet-consent"/>
+        <label for="pet-consent" style="margin:0;font-size:0.67rem;color:#6a9a88;">I consent to my name and role being recorded as part of this petition for research purposes.</label>
+      </div>
+      <div id="pet-error" style="display:none;color:#e74c3c;font-size:0.68rem;margin-top:8px;"></div>
+      <div class="action-btns">
+        <button class="action-btn secondary" onclick="document.getElementById('petition-modal').classList.remove('show')">Cancel</button>
+        <button class="action-btn primary" onclick="submitPetition()">Sign the Petition ✊</button>
+      </div>
+    </div>
+    <div class="action-success" id="petition-success">
+      <div class="tick">✅</div>
+      <p><strong style="color:#2ecc71">Signature received!</strong><br>Thank you for signing. Your name has been recorded — this may contribute to something bigger.<br><br><span style="color:#3a5a4a;font-size:0.65rem;">You can close this window.</span></p>
+    </div>
+  </div>
+</div>
+
+<!-- ══ PLEDGE MODAL ══ -->
+<div class="action-modal" id="pledge-modal" onclick="if(event.target===this)this.classList.remove('show')">
+  <div class="action-box">
+    <button onclick="document.getElementById('pledge-modal').classList.remove('show')" style="position:absolute;top:14px;right:16px;background:none;border:none;color:#3a5a4a;cursor:pointer;font-size:1rem;">✕</button>
+    <h2>🌱 Make a Green Space Pledge</h2>
+    <p class="sub">Choose a commitment and add your name. Pledges are tallied and shown at the summit.</p>
+    <div id="pledge-form-body">
+      <label>I pledge to…</label>
+      <div class="pledge-opts" id="pledge-opts">
+        <div class="pledge-opt" onclick="selectPledge(this,'🌳 Plant or care for at least one tree or garden this year')">🌳 Plant or care for a tree</div>
+        <div class="pledge-opt" onclick="selectPledge(this,'📢 Advocate for green space policy in my community')">📢 Advocate for green space policy</div>
+        <div class="pledge-opt" onclick="selectPledge(this,'🗺️ Share the Code Green map with my school or community')">🗺️ Share this map</div>
+        <div class="pledge-opt" onclick="selectPledge(this,'🏫 Bring green space education into my classroom or club')">🏫 Bring this to my classroom</div>
+        <div class="pledge-opt" onclick="selectPledge(this,'♻️ Reduce my personal environmental footprint this year')">♻️ Reduce my footprint</div>
+        <div class="pledge-opt" onclick="selectPledge(this,'🌐 Stay informed about urban green space research')">🌐 Stay informed</div>
+      </div>
+      <input type="hidden" id="pledge-choice" value=""/>
+      <label style="margin-top:10px;">Personal note <span style="color:#3a5a4a">(optional)</span></label>
+      <textarea id="pledge-note" placeholder="Add your own words to your pledge…"></textarea>
+      <div class="anon-row">
+        <span>Post anonymously</span>
+        <label class="switch" style="width:40px;height:22px;">
+          <input type="checkbox" id="pledge-anon" onchange="document.getElementById('pledge-name-row').style.display=this.checked?'none':'block'"/>
+          <span class="sw-slider"></span>
+        </label>
+      </div>
+      <div id="pledge-name-row">
+        <label>Your name</label>
+        <input type="text" id="pledge-name" placeholder="Your name" maxlength="80"/>
+      </div>
+      <label>School or organization <span style="color:#3a5a4a">(optional)</span></label>
+      <input type="text" id="pledge-org" placeholder="e.g. UNCW, YSA, Cape Fear High School…" maxlength="100"/>
+      <div class="consent-row">
+        <input type="checkbox" id="pledge-consent"/>
+        <label for="pledge-consent" style="margin:0;font-size:0.67rem;color:#6a9a88;">I consent to my name and pledge being recorded and shown as part of the Code Green project.</label>
+      </div>
+      <div id="pledge-error" style="display:none;color:#e74c3c;font-size:0.68rem;margin-top:8px;"></div>
+      <div class="action-btns">
+        <button class="action-btn secondary" onclick="document.getElementById('pledge-modal').classList.remove('show')">Cancel</button>
+        <button class="action-btn primary" onclick="submitPledge()">Make My Pledge 🌱</button>
+      </div>
+    </div>
+    <div class="action-success" id="pledge-success">
+      <div class="tick">🌱</div>
+      <p><strong style="color:#2ecc71">Pledge recorded!</strong><br>Thank you for your commitment. Your pledge is included in the summit tally.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ══ ADD YOUR MARK MODAL ══ -->
+<div class="action-modal" id="mark-modal" onclick="if(event.target===this)cancelMark()">
+  <div class="action-box">
+    <button onclick="cancelMark()" style="position:absolute;top:14px;right:16px;background:none;border:none;color:#3a5a4a;cursor:pointer;font-size:1rem;">✕</button>
+
+    <!-- Step 1: Consent gate (shown first) -->
+    <div id="mark-consent-step">
+      <h2>📍 Add Your Mark</h2>
+      <p class="sub">Click on the map to drop a pin showing where you live, work, or go to school. Your mark will be visible to <strong style="color:#e0f0eb">all visitors</strong> of this map.</p>
+      <div class="consent-gate">
+        <strong>⚠️ Public visibility notice</strong><br>
+        Any information you submit — including your name, mark type, location, and comment — will be stored and displayed publicly on this map. By continuing you consent to this. You may choose to remain anonymous.
+      </div>
+      <div class="action-btns">
+        <button class="action-btn secondary" onclick="cancelMark()">Cancel</button>
+        <button class="action-btn primary" onclick="proceedToMarkDrop()">I Understand — Place My Mark</button>
+      </div>
+    </div>
+
+    <!-- Step 2: Drop pin instruction (shown after consent) -->
+    <div id="mark-drop-step" style="display:none;">
+      <h2>📍 Click the Map</h2>
+      <p class="sub">Click anywhere on the map to drop your pin. The form will open automatically.</p>
+      <button class="action-btn secondary" style="width:100%;" onclick="cancelMark()">Cancel</button>
+    </div>
+
+    <!-- Step 3: Fill in details (shown after map click) -->
+    <div id="mark-form-step" style="display:none;">
+      <h2>📍 Your Mark at <span id="mark-coords" style="color:#2ecc71;font-size:0.85rem;"></span></h2>
+      <p class="sub" style="margin-bottom:8px;">What brings you to this location?</p>
+
+      <div class="mark-types" id="mark-types">
+        <div class="mark-type" onclick="selectMarkType(this,'live')"><span class="mt-icon">🏠</span>I live here</div>
+        <div class="mark-type" onclick="selectMarkType(this,'work')"><span class="mt-icon">💼</span>I work here</div>
+        <div class="mark-type" onclick="selectMarkType(this,'school')"><span class="mt-icon">🎓</span>I go to school here</div>
+      </div>
+
+      <div class="anon-row">
+        <span>Post anonymously</span>
+        <label class="switch" style="width:40px;height:22px;">
+          <input type="checkbox" id="mark-anon" onchange="toggleMarkAnon(this.checked)"/>
+          <span class="sw-slider"></span>
+        </label>
+      </div>
+
+      <div id="mark-name-row">
+        <label>Your name</label>
+        <input type="text" id="mark-name" placeholder="Your name" maxlength="80"/>
+      </div>
+
+      <label>Comment <span style="color:#3a5a4a">(optional — visible to all)</span></label>
+      <textarea id="mark-comment" placeholder="e.g. There's very little green space on this block. Hoping to see that change."></textarea>
+
+      <input type="hidden" id="mark-lat"/>
+      <input type="hidden" id="mark-lng"/>
+      <input type="hidden" id="mark-site"/>
+      <input type="hidden" id="mark-type-val"/>
+
+      <div id="mark-error" style="display:none;color:#e74c3c;font-size:0.68rem;margin-top:8px;"></div>
+      <div class="action-btns" style="margin-top:12px;">
+        <button class="action-btn secondary" onclick="cancelMark()">Cancel</button>
+        <button class="action-btn primary" onclick="submitMark()">Post My Mark 📍</button>
+      </div>
+    </div>
+
+    <!-- Success -->
+    <div class="action-success" id="mark-success">
+      <div class="tick">📍</div>
+      <p><strong style="color:#2ecc71">Mark posted!</strong><br>Your pin is now visible on the community map. Thank you for contributing.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ══ TAKE ACTION HUB ══ -->
+<div class="action-modal" id="action-hub-modal" onclick="if(event.target===this)this.classList.remove('show')">
+  <div class="action-box" style="max-width:340px;">
+    <button onclick="document.getElementById('action-hub-modal').classList.remove('show')" style="position:absolute;top:14px;right:16px;background:none;border:none;color:#3a5a4a;cursor:pointer;font-size:1rem;">✕</button>
+    <h2>✊ Take Action</h2>
+    <p class="sub">Use the data you've seen to make a difference. Choose how you want to get involved.</p>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <button onclick="document.getElementById('action-hub-modal').classList.remove('show');openPetition()" style="background:#1a2e22;border:1.5px solid #27ae60;border-radius:10px;padding:13px 16px;color:#e0f0eb;text-align:left;cursor:pointer;font-size:0.82rem;font-weight:600;display:flex;align-items:center;gap:12px;transition:background 0.2s;"><span style="font-size:1.4rem;">🖊️</span><div><div>Sign the Petition</div><div style="font-size:0.63rem;color:#6a9a88;font-weight:400;margin-top:2px;">Add your name in support of green space policy — collected for research purposes</div></div></button>
+      <button onclick="document.getElementById('action-hub-modal').classList.remove('show');openPledge()" style="background:#1a2e22;border:1.5px solid #27ae60;border-radius:10px;padding:13px 16px;color:#e0f0eb;text-align:left;cursor:pointer;font-size:0.82rem;font-weight:600;display:flex;align-items:center;gap:12px;transition:background 0.2s;"><span style="font-size:1.4rem;">🌱</span><div><div>Make a Pledge</div><div style="font-size:0.63rem;color:#6a9a88;font-weight:400;margin-top:2px;">Commit to an action — plant a tree, share the map, advocate for policy</div></div></button>
+      <button onclick="document.getElementById('action-hub-modal').classList.remove('show');openAddMark()" style="background:#1a2e22;border:1.5px solid #27ae60;border-radius:10px;padding:13px 16px;color:#e0f0eb;text-align:left;cursor:pointer;font-size:0.82rem;font-weight:600;display:flex;align-items:center;gap:12px;transition:background 0.2s;"><span style="font-size:1.4rem;">📍</span><div><div>Add Your Mark</div><div style="font-size:0.63rem;color:#6a9a88;font-weight:400;margin-top:2px;">Drop a pin showing where you live, work, or go to school</div></div></button>
+      <button onclick="document.getElementById('action-hub-modal').classList.remove('show');toggleFeedback()" style="background:#1a2e22;border:1.5px solid #1a3a28;border-radius:10px;padding:13px 16px;color:#e0f0eb;text-align:left;cursor:pointer;font-size:0.82rem;font-weight:600;display:flex;align-items:center;gap:12px;transition:background 0.2s;"><span style="font-size:1.4rem;">💬</span><div><div>Leave a Comment</div><div style="font-size:0.63rem;color:#6a9a88;font-weight:400;margin-top:2px;">Share what you notice about the data</div></div></button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ NETLIFY FORM DETECTION (hidden — Netlify scans these at build time) ══ -->
+<div style="display:none" aria-hidden="true">
+  <form name="feedback" netlify netlify-honeypot="bot-field">
+    <input name="bot-field"/><input name="author"/><input name="text"/><input name="site"/><input name="year"/>
+  </form>
+  <form name="petition" netlify netlify-honeypot="bot-field">
+    <input name="bot-field"/><input name="name"/><input name="email"/><input name="org"/><input name="role"/><textarea name="message"></textarea><input name="consent"/>
+  </form>
+  <form name="pledge" netlify netlify-honeypot="bot-field">
+    <input name="bot-field"/><input name="name"/><input name="org"/><input name="pledge"/><textarea name="note"></textarea><input name="consent"/>
+  </form>
+  <form name="live-here" netlify netlify-honeypot="bot-field">
+    <input name="bot-field"/><input name="name"/><input name="role"/><textarea name="note"></textarea><input name="lat"/><input name="lng"/><input name="site"/><input name="consent"/>
+  </form>
+</div>
+<div id="feedback-panel">
+  <div class="fb-header"><h3>💬 Leave Feedback</h3><button onclick="toggleFeedback()">✕</button></div>
+  <div class="fb-comments" id="fb-comments-list"></div>
+  <div class="fb-form">
+    <div id="fb-signin-prompt" class="fb-signin-prompt" style="display:none"><a href="#" onclick="openSignin();return false;" style="color:#27ae60">Sign in</a> to leave a comment</div>
+    <textarea id="fb-text" placeholder="What do you notice? Which areas stand out?"></textarea>
+    <button class="fb-submit" onclick="submitComment()">Post Comment</button>
+  </div>
+</div>
+
+<div id="settings-overlay" onclick="if(event.target===this)this.classList.remove('show')">
+  <div id="settings-box">
+    <button id="settings-close" onclick="document.getElementById('settings-overlay').classList.remove('show')">✕</button>
+    <h2>⚙️ Accessibility Settings</h2>
+    <div class="sub">Customize the map for your viewing preferences</div>
+    <div class="settings-section">
+      <h3>Text Size</h3>
+      <div class="setting-row">
+        <div class="setting-label">Font Size<span>Adjust text size across the panel</span></div>
+        <div class="font-btns">
+          <button class="font-btn active" onclick="setFontSize('small',this)">A</button>
+          <button class="font-btn" onclick="setFontSize('large',this)" style="font-size:1rem">A</button>
+          <button class="font-btn" onclick="setFontSize('xl',this)" style="font-size:1.2rem">A</button>
+        </div>
+      </div>
+    </div>
+    <div class="settings-section">
+      <h3>Color</h3>
+      <div class="setting-row">
+        <div class="setting-label">Colorblind Mode<span>Blue-orange palette</span></div>
+        <label class="switch"><input type="checkbox" id="sw-cb" onchange="toggleColorblind(this.checked)"/><span class="sw-slider"></span></label>
+      </div>
+    </div>
+    <div class="settings-section">
+      <h3>Layout</h3>
+      <div class="setting-row">
+        <div class="setting-label">Device View<span>Change map display</span></div>
+        <div class="font-btns">
+          <button class="font-btn layout-btn active" id="layout-desktop" onclick="setDevice('desktop')">💻</button>
+          <button class="font-btn layout-btn" id="layout-tablet" onclick="setDevice('tablet')">📱</button>
+          <button class="font-btn layout-btn" id="layout-phone" onclick="setDevice('phone')">📲</button>
+        </div>
+      </div>
+    </div>
+    <div class="settings-section">
+      <h3>Text-to-Speech</h3>
+      <div class="setting-row">
+        <div class="setting-label">Read Spot Details Aloud</div>
+        <label class="switch"><input type="checkbox" id="sw-tts" onchange="toggleTTS(this.checked)"/><span class="sw-slider"></span></label>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="tts-indicator">🔊 Speaking...</div>
+<div id="sat-missing" style="display:none;position:fixed;top:80px;left:50%;transform:translateX(-50%);background:#1a2e22;border:1px solid #f39c12;border-radius:8px;padding:10px 18px;font-size:0.75rem;color:#f39c12;z-index:9995;">⚠️ Satellite imagery not yet generated for this site</div>
+<div id="share-toast">✅ Link copied!</div>
+
+<!-- ══════════════════════════════════════════════════════
+     DATA — Wilmington loaded from file; Moldova starts empty
+     ══════════════════════════════════════════════════════ -->
+<script>
+// Initialize all data containers before loading scripts
+const RAW_DATA={};
+const RAW_DATA_CHISINAU={};
+const RAW_DATA_LOZOVA={};
+</script>
+<script src="{% static 'ndvi_all_years_inline.js' %}"></script>
+<script src="{% static 'ndvi_chisinau_inline.js' %}"></script>
+<script src="{% static 'ndvi_lozova_inline.js' %}"></script>
+<script>
+// Merge Lozova points into Chisinau so they appear on the same map
+Object.keys(RAW_DATA_LOZOVA).forEach(yr=>{
+  if(!RAW_DATA_CHISINAU[yr]) RAW_DATA_CHISINAU[yr]=[];
+  RAW_DATA_CHISINAU[yr]=RAW_DATA_CHISINAU[yr].concat(RAW_DATA_LOZOVA[yr]);
+});
+</script>
+
+<script>
+const YEARS=[2019,2020,2021,2022,2023,2024,2025,2026,2030,2035];
+const YEARS_REAL=[2019,2020,2021,2022,2023,2024,2025,2026]; // years with actual satellite data
+const CONTEXTS=['Pre-COVID Baseline','COVID-19 Year','Recovery Begins','Development Surge','Green Space vs. Growth','Continued Pressure','Present Day','2026 — Partial Season','🔮 5-Year Forecast','🔮 10-Year Forecast'];
+const CONTEXTS_CHISINAU=['Pre-COVID Baseline','COVID-19 Year','Peak Green Space','Post-COVID Surge','Continued Pressure','Partial Recovery','Present Day','2026 — Partial Season','🔮 5-Year Forecast','🔮 10-Year Forecast'];
+const CONTEXTS_LOZOVA=['Pre-COVID Baseline','COVID-19 Year','Peak Growing Season','Agricultural Cycles','Rural Stability','Strong Harvest','Present Day','2026 — Partial Season','🔮 5-Year Forecast','🔮 10-Year Forecast'];
+
+// ══════════════════════════════════════════════
+// SITE CONFIGURATIONS
+// ══════════════════════════════════════════════
+const SITES=[
+  {
+    id:'wilmington',
+    name:'🇺🇸 Wilmington, NC',
+    title:'🌿 Code Green — Wilmington Green Space Tracker',
+    subtitle:'YSA Global STEM Ambassadors · NASA/USGS Satellite Data · Wilmington, NC · 2019–2026',
+    footer:'NASA/USGS Landsat 8 · Google Earth Engine · Urban Wilmington NC · Code Green YSA 2026',
+    presenter:'Pre-summit data (June 2026). Future phases: 2,000 sample points, neighborhood-level breakdown.',
+    center:[34.246,-77.896], zoom:12, minZoom:12,
+    bounds:{minLat:34.190,maxLat:34.302,minLng:-77.972,maxLng:-77.820},
+    satBounds:[[34.19,-77.97],[34.295,-77.82]],
+    satPrefix:'/static/satellite_images/satellite_wilmington_',
+    circleRadius:950,
+    dataObj:RAW_DATA,
+    regionLabel:'ZIP',
+    getRegion:(lat,lng)=>getZipILM(lat,lng),
+    getNeighborhood:(lat,lng)=>getNeighborhoodILM(lat,lng),
+    studyBoxes:[{bounds:{minLat:34.190,maxLat:34.302,minLng:-77.972,maxLng:-77.820},color:'#2ecc71',label:'Study Area'}],
+    regionLabels:[
+      {lat:34.285,lng:-77.925,l:'28401'},{lat:34.255,lng:-77.89,l:'28403'},
+      {lat:34.278,lng:-77.86,l:'28405'},{lat:34.222,lng:-77.87,l:'28409'},
+      {lat:34.278,lng:-77.825,l:'28411'}
+    ],
+    landmarks:[
+      {lat:34.2107,lng:-77.9374,emoji:'🌊 Greenfield Lake',note:'Major urban park and lake — key protected green space',color:'#27ae60'},
+      {lat:34.2138,lng:-77.9067,emoji:'🛍 Independence Mall',note:'Large commercial center — high pavement and low vegetation',color:'#e74c3c'},
+      {lat:34.2352,lng:-77.8329,emoji:'🏢 nCino HQ',note:'6770 Parker Farm Dr — Major Wilmington tech employer',color:'#3498db'},
+      {lat:34.2226,lng:-77.8735,emoji:'🎓 UNCW',note:'University of North Carolina Wilmington campus',color:'#9b59b6'},
+      {lat:34.2453,lng:-77.9478,emoji:'🌉 Downtown ILM',note:'Historic downtown waterfront — Cape Fear River area',color:'#f39c12'},
+      {lat:34.2712,lng:-77.9029,emoji:'✈️ ILM Airport',note:'Wilmington International Airport',color:'#3498db'},
+    ],
+    yearNotes:{
+      2019:'<strong>Pre-COVID baseline — 72.3% green.</strong> Wilmington growing steadily. New Hanover County issuing 1,200+ building permits/year.',
+      2020:'<strong>COVID lockdowns — 75.9% green.</strong> +3.6pp vs 2019. Construction pauses. Green space rises as cleared land re-vegetates.',
+      2021:'<strong>Peak green space — 77.9% green.</strong> +2.0pp vs 2020. Highest recorded. Lockdown effects still visible. This is Code Green\'s benchmark.',
+      2022:'<strong>⚠️ Lowest recorded — 68.8% green.</strong> −9.1pp vs 2021. Concrete/urban up 41% from 2021. Post-COVID construction backlog unleashed simultaneously.',
+      2023:'<strong>Partial recovery — 71.0% green.</strong> +2.2pp vs 2022. Post-construction landscaping requirements kick in. Development continues but clearing slowed.',
+      2024:'<strong>Continued recovery — 73.1% green.</strong> +2.0pp vs 2023. Vegetation recovery from prior development. New land clearing continues in north corridors.',
+      2025:'<strong>Still below peak — 73.2% green.</strong> +0.2pp vs 2024. Net green space lost has not been recovered. 4.7pp below the 2021 peak.',
+      2026:'<strong>2026 projected — ~71% green.</strong> Dot colors show what the 2019–2025 trend <em>predicts</em> for each location — areas that gained green get greener, areas losing it continue to decline. Full satellite re-export after Oct 2026 will replace this with real data.'
+    },
+    hypothesis:'<strong>🔬 The COVID Development Acceleration Effect</strong>COVID-19 lockdowns in 2020 paused construction across Wilmington. This created a backlog of delayed projects that — once restrictions lifted — unleashed an accelerated wave of development from 2021–2024. 2022 recorded the lowest green space in the study.',
+    predictText:'Based on the trend you\'ve seen from 2019–2026, what do you predict for Wilmington\'s green space in the next 5–10 years?',
+    predictBullets:['Will development continue to accelerate?','Could policy changes reverse the trend?','Which neighborhoods are most at risk?','What would a 2035 map look like?'],
+    legendBoxes:`<div class="leg-row"><div style="width:16px;height:16px;border:2px dashed #2ecc71;border-radius:2px;flex-shrink:0"></div><div><div class="leg-main">Study Area Boundary</div><div class="leg-sub">Urban Wilmington analyzed by satellite</div></div></div>`,
+  },
+  {
+    id:'chisinau',
+    name:'🇲🇩 Chisinau, Moldova',
+    title:'🌿 Code Green MD — Chisinau Green Space Tracker',
+    subtitle:'YSA Global STEM Ambassadors · NASA/USGS Satellite Data · Moldova · 2019–2026',
+    footer:'NASA/USGS Sentinel-2 · Google Earth Engine · Chisinau Moldova · Code Green YSA 2026',
+    presenter:'YSA Global STEM Ambassadors NC–Moldova Exchange (2026). Same methodology as Code Green Wilmington — direct international comparison.',
+    center:[47.0,28.875], zoom:12, minZoom:11,
+    bounds:{minLat:46.91,maxLat:47.07,minLng:28.75,maxLng:29.00},
+    satBounds:[[46.91,28.75],[47.07,29.00]],
+    satPrefix:'/static/satellite_images/satellite_chisinau_',
+    circleRadius:950,
+    dataObj:RAW_DATA_CHISINAU,
+    regionLabel:'Raion',
+    getRegion:(lat,lng)=>getRaionChisinau(lat,lng),
+    getNeighborhood:(lat,lng)=>getNeighborhoodChisinau(lat,lng),
+    studyBoxes:[
+      {bounds:{minLat:46.91,maxLat:47.07,minLng:28.75,maxLng:29.00},color:'#2ecc71',label:'Chisinau Study Area'},
+    ],
+    regionLabels:[
+      {lat:47.015,lng:28.845,l:'Centru'},{lat:46.975,lng:28.865,l:'Botanica'},
+      {lat:47.040,lng:28.785,l:'Buiucani'},{lat:47.025,lng:28.920,l:'Ciocana'},
+      {lat:47.060,lng:28.855,l:'Rascani'},
+    ],
+    landmarks:[
+      {lat:47.0200,lng:28.8399,emoji:'🌿 Stefan cel Mare Park',note:'Stefan cel Mare Central Park — oldest park in Moldova (1818), heart of Chisinau',color:'#27ae60'},
+      {lat:47.0055,lng:28.8578,emoji:'🏛 Parliament of Moldova',note:'Parliament Palace — Piața Marii Adunări Naționale, civic center of Chisinau',color:'#9b59b6'},
+      {lat:47.0158,lng:28.8206,emoji:'🌊 Valea Morilor',note:'Valea Morilor Park — 114 hectares, major lake park in Buiucani sector',color:'#27ae60'},
+      {lat:47.0186,lng:28.8236,emoji:'🎓 Moldova State Univ.',note:'Moldova State University — main campus, Alexei Mateevici Street',color:'#3498db'},
+      {lat:46.9277,lng:28.9310,emoji:'✈️ Chisinau Airport',note:'Chisinau International Airport (KIV/LUKK)',color:'#3498db'},
+    ],
+    yearNotes:{
+      2019:'<strong>Pre-COVID baseline — 90.4% green.</strong> Chisinau growing steadily amid post-Soviet urbanization and early EU association pressure. High-rise residential construction accelerating in Botanica and Ciocana.',
+      2020:'<strong>COVID lockdowns — 85.5% green.</strong> −4.9pp vs 2019. Moldova declared a state of emergency in March 2020. Construction paused. <span style="color:#6a9a88;font-size:0.65rem;display:block;margin-top:6px;">☁️ <em>Note: Satellite imagery for this year contains partial cloud coverage, which can suppress recorded green scores. The satellite images themselves confirm vegetation was still present — this figure may be a slight undercount.</em></span>',
+      2021:'<strong>Peak green space — 94.7% green.</strong> +9.2pp vs 2020. Highest recorded. Lockdown effects still visible — vegetation established on disturbed land. Moldova\'s slower COVID recovery extended the construction pause.',
+      2022:'<strong>Post-COVID development surge — 86.9% green.</strong> −7.8pp vs 2021. Construction backlog unleashed across Chisinau. Conflict in neighboring Ukraine also accelerated housing demand.',
+      2023:'<strong>Continued pressure — 90.2% green.</strong> +3.3pp vs 2022. Moldova\'s EU candidacy status (June 2022) brought new investment and development into Centru and Buiucani.',
+      2024:'<strong>Partial recovery — 87.6% green.</strong> −2.6pp vs 2023. Post-construction landscaping requirements and EU planning standards beginning to take effect.',
+      2025:'<strong>Current state — 85.6% green.</strong> −2.0pp vs 2024. Still 9.1pp below the 2021 peak. Does this mirror Wilmington\'s post-COVID trajectory?',
+      2026:'<strong>2026 projected — ~87% green.</strong> Dot colors show what the 2019–2025 trend <em>predicts</em> for each location in Chisinau. Full satellite re-export after Oct 2026 will replace this with real data.'
+    },
+    hypothesis:'<strong>🔬 The COVID Development Acceleration Effect — International Test</strong>Same hypothesis as Wilmington: COVID lockdowns paused construction in 2020, and the post-pandemic surge stressed green infrastructure. Moldova tests whether this pattern holds in Eastern Europe.',
+    predictText:'Based on the trend from 2019–2026, what do you predict for Chisinau\'s green space in the next 5–10 years?',
+    predictBullets:['Will EU accession pressure accelerate development?','Could new urban planning policy reverse the trend?','Which raions of Chisinau are most at risk?','How does this compare to Wilmington\'s trajectory?'],
+    legendBoxes:`<div class="leg-row"><div style="width:16px;height:16px;border:2px dashed #2ecc71;border-radius:2px;flex-shrink:0"></div><div><div class="leg-main">Chisinau Study Area</div><div class="leg-sub">Chisinau city analyzed by satellite</div></div></div>`,
+  },
+  {
+    id:'lozova',
+    name:'🇲🇩 Lozova, Strășeni',
+    title:'🌿 Code Green MD — Lozova Green Space Tracker',
+    subtitle:'YSA Global STEM Ambassadors · NASA/USGS Satellite Data · Strășeni Raion, Moldova · 2019–2026',
+    footer:'NASA/USGS Sentinel-2 · Google Earth Engine · Lozova, Strășeni · Code Green YSA 2026',
+    presenter:'YSA STEM Exchange visit site — Lozova village, Strășeni raion. Predominantly farmland and forest — green scores reflect agricultural cycles, not urban development.',
+    center:[47.134,28.384], zoom:13, minZoom:12,
+    bounds:{minLat:47.08,maxLat:47.18,minLng:28.31,maxLng:28.45},
+    satBounds:[[47.08,28.31],[47.18,28.45]],
+    satPrefix:'/static/satellite_images/satellite_lozova_',
+    circleRadius:500,
+    dataObj:RAW_DATA_LOZOVA,
+    regionLabel:'Village',
+    getRegion:()=>'Strășeni',
+    getNeighborhood:()=>'Lozova',
+    studyBoxes:[{bounds:{minLat:47.08,maxLat:47.18,minLng:28.31,maxLng:28.45},color:'#f39c12',label:'Lozova Study Area'}],
+    regionLabels:[{lat:47.134,lng:28.384,l:'Lozova'}],
+    landmarks:[
+      {lat:47.1334,lng:28.3829,emoji:'🏡 Lozova Village',note:'Lozova village center, Strășeni raion — YSA STEM exchange visit site',color:'#f39c12'},
+    ],
+    yearNotes:{
+      2019:'<strong>Pre-COVID baseline — 97.4% green.</strong> Lozova is a rural village in Strășeni raion, ~30km northwest of Chisinau. Predominantly farmland and forest — scores reflect crop and vegetation cycles, not urban development.',
+      2020:'<strong>Growing season — 93.0% green.</strong> −4.4pp vs 2019. Rural Moldova saw no real construction disruption this year. <span style="color:#6a9a88;font-size:0.65rem;display:block;margin-top:6px;">☁️ <em>Note: Satellite imagery for this year contains partial cloud coverage, which can suppress recorded green scores. The satellite images themselves confirm vegetation was still present — this figure may be a slight undercount.</em></span>',
+      2021:'<strong>Peak green space — 99.1% green.</strong> +6.1pp vs 2020. Highest recorded. Healthy summer crops and full forest canopy. Rural land use driven by agriculture, not construction pressure.',
+      2022:'<strong>Agricultural cycles — 96.8% green.</strong> −2.3pp vs 2021. Unlike Chisinau\'s development surge, Lozova\'s variation reflects seasonal farming and crop rotation — year-to-year change here is natural.',
+      2023:'<strong>Continued rural stability — 97.4% green.</strong> +0.7pp vs 2022. Rural Moldova faces far less development pressure than the capital. Green space here is driven by what gets planted, not what gets paved.',
+      2024:'<strong>Strong harvest — 95.5% green.</strong> −1.9pp vs 2023. Agricultural land use shifting as EU standards and subsidies are adopted.',
+      2025:'<strong>Current state — 97.9% green.</strong> +2.4pp vs 2024. You visited this village as part of the YSA STEM exchange. How does the reality of the farmland and forest compare to what the satellite saw?',
+      2026:'<strong>2026 projected — ~97% green.</strong> Dot colors show what the 2019–2025 trend <em>predicts</em> for each location in Lozova. Full satellite re-export after Oct 2026 will replace this with real data.'
+    },
+    hypothesis:'<strong>🔬 Urban vs. Rural Green Space</strong>Lozova is the rural control site. While Chisinau tracks the COVID development acceleration hypothesis, Lozova shows what Moldova looks like without urban construction pressure. The contrast between these two sites is itself a finding.',
+    predictText:'You visited Lozova as part of the YSA STEM exchange. What did you observe on the ground that the satellite can\'t capture?',
+    predictBullets:['How did the village compare to what the map showed?','What green space stood out on the ground?','How does rural Lozova compare to urban Chisinau?','What would change if development pressure reached here?'],
+    legendBoxes:`<div class="leg-row"><div style="width:16px;height:16px;border:2px dashed #f39c12;border-radius:2px;flex-shrink:0"></div><div><div class="leg-main">Lozova Study Area</div><div class="leg-sub">Lozova village, Strășeni raion — farmland &amp; forest</div></div></div>`,
+  }
+];
+
+// ══════════════════════════════════════════════
+// REGION LOOKUP FUNCTIONS
+// ══════════════════════════════════════════════
+function getZipILM(lat,lng){
+  if(lat>34.27)return'28405';
+  if(lat>34.24&&lng<-77.92)return'28401';
+  if(lat>34.24&&lng>=-77.92&&lng<-77.86)return'28403';
+  if(lat>34.24&&lng>=-77.86)return'28411';
+  if(lat<=34.24&&lng<-77.90)return'28401';
+  if(lat<=34.24&&lng>=-77.90&&lng<-77.84)return'28403';
+  if(lat<=34.22)return'28409';
+  return'28403';
+}
+function getNeighborhoodILM(lat,lng){
+  if(lat>34.27&&lng<-77.88)return'North Wilmington';
+  if(lat>34.27&&lng>=-77.88)return'Porters Neck';
+  if(lat>34.245&&lat<=34.27&&lng<-77.93)return'Midtown West';
+  if(lat>34.245&&lat<=34.27&&lng>=-77.93&&lng<-77.87)return'Midtown';
+  if(lat>34.245&&lat<=34.27&&lng>=-77.87)return'Mayfaire Area';
+  if(lat>34.22&&lat<=34.245&&lng<-77.93)return'Downtown';
+  if(lat>34.22&&lat<=34.245&&lng>=-77.93)return'South Side';
+  return'Wilmington';
+}
+function getRaionChisinau(lat,lng){
+  if(lat>=46.99&&lat<=47.03&&lng>=28.82&&lng<=28.88)return'Centru';
+  if(lat<46.99&&lng>=28.83&&lng<=28.91)return'Botanica';
+  if(lat>=47.01&&lng<28.83)return'Buiucani';
+  if(lng>=28.88&&lat>=46.99&&lat<=47.05)return'Ciocana';
+  if(lat>=47.03&&lng>=28.82&&lng<=28.90)return'Rascani';
+  return'Chisinau';
+}
+function getNeighborhoodChisinau(lat,lng){
+  if(lat>=47.06)return'Northern Chisinau';
+  if(lat>=47.03&&lng<28.82)return'Buiucani';
+  if(lat>=47.03)return'Rascani';
+  if(lat>=47.00&&lng>=28.88)return'Ciocana';
+  if(lat>=46.99&&lat<47.03&&lng>=28.82&&lng<28.88)return'Centru';
+  if(lat<46.99&&lat>=46.96)return'Botanica';
+  return'Chisinau';
+}
+
+// ══════════════════════════════════════════════
+// MAP + STATE
+// ══════════════════════════════════════════════
+const COLORS_NORMAL={vhigh:'#1a7a2e',high:'#2ecc71',mid:'#f1c40f',low:'#e67e22',vlow:'#e74c3c'};
+const COLORS_CB={vhigh:'#005073',high:'#0097b2',mid:'#f0e442',low:'#e69f00',vlow:'#d55e00'};
+let currentColors={...COLORS_NORMAL};
+let cbMode=false, dotsVisible=true, dotOpacity=0.72;
+let relativeMode=false;
+let policyMode=false, policyThreshold=0.30;
+
+// Diverging scale for relative change: loss=red, no change=grey, gain=green
+function getColorRelative(delta){
+  // delta = ndvi_year - ndvi_2019 (range roughly -1 to +1)
+  if(delta >  0.15) return '#1a7a2e';  // strong gain
+  if(delta >  0.07) return '#2ecc71';  // moderate gain
+  if(delta >  0.02) return '#a8dba8';  // slight gain
+  if(delta >= -0.02) return '#aaaaaa'; // no change
+  if(delta >= -0.07) return '#f5a87a'; // slight loss
+  if(delta >= -0.15) return '#e67e22'; // moderate loss
+  return '#e74c3c';                    // strong loss
+}
+function getLabelRelative(delta){
+  if(delta >  0.15) return {emoji:'🌳',text:'Strong gain vs 2019'};
+  if(delta >  0.07) return {emoji:'🌿',text:'Moderate gain vs 2019'};
+  if(delta >  0.02) return {emoji:'🍃',text:'Slight gain vs 2019'};
+  if(delta >= -0.02) return {emoji:'➡️',text:'No change vs 2019'};
+  if(delta >= -0.07) return {emoji:'🟡',text:'Slight loss vs 2019'};
+  if(delta >= -0.15) return {emoji:'🟠',text:'Moderate loss vs 2019'};
+  return {emoji:'🔴',text:'Strong loss vs 2019'};
+}
+// Linear regression per dot to predict 2030 and 2035 values
+// Uses YEARS 2019–2025 only for regression (2026 is partial Apr–Jun, different window)
+const YEARS_PRED=[2019,2020,2021,2022,2023,2024,2025];
+function computePredictions(byYear){
+  const pairs=YEARS_PRED.map((y,i)=>[i, byYear[y]]).filter(([,v])=>v!=null);
+  if(pairs.length<2){
+    const last=byYear[2025]??byYear[2024]??0.5;
+    return {p2026:last, p2030:last, p2035:last};
+  }
+  const n=pairs.length;
+  const sumX=pairs.reduce((s,[x])=>s+x,0);
+  const sumY=pairs.reduce((s,[,y])=>s+y,0);
+  const sumXY=pairs.reduce((s,[x,y])=>s+x*y,0);
+  const sumX2=pairs.reduce((s,[x])=>s+x*x,0);
+  const denom=n*sumX2-sumX*sumX;
+  if(denom===0){const avg=sumY/n;return{p2030:avg,p2035:avg};}
+  const slope=(n*sumXY-sumX*sumY)/denom;
+  const intercept=(sumY-slope*sumX)/n;
+  const clamp=v=>Math.max(0.05,Math.min(0.99,v));
+  // index 11 = 2030 (4 years beyond index 7=2026), index 16 = 2035
+  // 2019=idx0 … 2025=idx6; 2030=idx11, 2035=idx16
+  // idx7=2026, idx11=2030, idx16=2035
+  return{p2026:clamp(slope*7+intercept), p2030:clamp(slope*11+intercept), p2035:clamp(slope*16+intercept)};
+}
+
+let satMode=false, satOverlay=null;
+let ttsEnabled=false, ttsYear=false;
+let playTimer=null;
+let currentSiteIdx=0;
+
+// Map layer groups — cleared and rebuilt on site switch
+let circleLayer, circleLayerB, activeCircleLayer=0, landmarkLayer, boundaryLayers=[], labelMarkers=[];
+
+function getColor(n){
+  if(n>=0.85)return currentColors.vhigh;
+  if(n>=0.70)return currentColors.high;
+  if(n>=0.55)return currentColors.mid;
+  if(n>=0.40)return currentColors.low;
+  return currentColors.vlow;
+}
+function getLabel(n){
+  if(n>=0.85)return{emoji:'🌳',text:'Dense Vegetation / Forest'};
+  if(n>=0.70)return{emoji:'🌿',text:'Healthy Green Space'};
+  if(n>=0.55)return{emoji:'🌾',text:'Mixed — Some Green, Some Concrete'};
+  if(n>=0.40)return{emoji:'🏗',text:'Mostly Concrete / Development'};
+  return{emoji:'🏙',text:'Heavy Urban — High Heat Island Risk'};
+}
+
+// Build global bounds for map init (covers all sites)
+const GLOBAL_BOUNDS=L.latLngBounds([34.0,-78.2],[47.3,29.3]);
+const map=L.map('map',{minZoom:3,maxZoom:17,tapTolerance:15,tap:true,maxBounds:GLOBAL_BOUNDS,maxBoundsViscosity:0.85}).setView([34.246,-77.896],12);
+const darkTile=L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © CARTO',maxZoom:19,keepBuffer:8});
+const lightTile=L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © CARTO',maxZoom:19,keepBuffer:8});
+darkTile.addTo(map);
+circleLayer=L.layerGroup().addTo(map);
+circleLayerB=L.layerGroup().addTo(map);
+landmarkLayer=L.layerGroup().addTo(map);
+
+// Community marks layer — drawn on top of data circles
+const communityLayer=L.layerGroup().addTo(map);
+let communityVisible=false;
+
+// Mark mode — intercept map clicks when active
+let markMode=false;
+let markPreviewMarker=null;
+map.on('click',function(e){
+  if(!markMode)return;
+  const lat=e.latlng.lat.toFixed(5), lng=e.latlng.lng.toFixed(5);
+  if(markPreviewMarker)map.removeLayer(markPreviewMarker);
+  markPreviewMarker=L.circleMarker([e.latlng.lat,e.latlng.lng],{radius:9,fillColor:'#aaa',color:'#fff',weight:2,fillOpacity:0.85}).addTo(map);
+  document.getElementById('mark-lat').value=lat;
+  document.getElementById('mark-lng').value=lng;
+  document.getElementById('mark-site').value=SITES[currentSiteIdx]?.id||'';
+  document.getElementById('mark-coords').textContent=lat+'°, '+lng+'°';
+  document.getElementById('mark-name').value=currentUser?.name||'';
+  // Reset form state
+  document.getElementById('mark-drop-step').style.display='none';
+  document.getElementById('mark-form-step').style.display='block';
+  document.getElementById('mark-success').style.display='none';
+  document.getElementById('mark-error').style.display='none';
+  document.getElementById('mark-anon').checked=false;
+  document.getElementById('mark-name-row').style.display='block';
+  document.getElementById('mark-type-val').value='';
+  document.getElementById('mark-comment').value='';
+  document.querySelectorAll('.mark-type').forEach(t=>t.className='mark-type');
+  document.getElementById('mark-modal').classList.add('show');
+});
+
+// ══════════════════════════════════════════════
+// SITE SWITCH
+// ══════════════════════════════════════════════
+function cycleSite(dir){
+  currentSiteIdx=(currentSiteIdx+dir+SITES.length)%SITES.length;
+  applySite(currentSiteIdx);
+}
+
+async function applySite(idx){
+  const site=SITES[idx];
+
+  // Update dots
+  SITES.forEach((_,i)=>{
+    document.getElementById('dot-'+i).classList.toggle('active',i===idx);
+  });
+  document.getElementById('site-name-display').textContent=site.name;
+
+  // Update header
+  document.getElementById('site-title').textContent=site.title;
+  document.getElementById('site-subtitle').textContent=site.subtitle;
+  document.getElementById('footer-left').textContent=site.footer;
+  document.getElementById('presenter-text').textContent=site.presenter;
+  document.getElementById('presenter-sidebar-text').textContent=site.presenter;
+
+  // Update sidebar text
+  document.getElementById('hypothesis-box').innerHTML=site.hypothesis;
+  document.getElementById('predict-text').textContent=site.predictText;
+  document.getElementById('predict-bullets').innerHTML=site.predictBullets.map(b=>`<li>${b}</li>`).join('');
+  document.getElementById('legend-boxes').innerHTML=site.legendBoxes;
+
+  // Clear map layers
+  if(satOverlay){map.removeLayer(satOverlay);satOverlay=null;}
+  landmarkLayer.clearLayers();
+  circleLayer.clearLayers();circleLayerB.clearLayers();
+  persistentCircles=[];persistentSiteId=null;
+  boundaryLayers.forEach(l=>map.removeLayer(l));
+  boundaryLayers=[];
+  labelMarkers.forEach(l=>map.removeLayer(l));
+  labelMarkers=[];
+
+  // Draw study area boxes
+  const PAD=0.007;
+  site.studyBoxes.forEach(box=>{
+    const r=L.rectangle([
+      [box.bounds.minLat-PAD,box.bounds.minLng-PAD],
+      [box.bounds.maxLat+PAD,box.bounds.maxLng+PAD]
+    ],{color:box.color,weight:2,dashArray:'8 5',fillOpacity:0.02,fillColor:box.color,interactive:false});
+    r.addTo(map);
+    boundaryLayers.push(r);
+  });
+
+  // Draw region labels
+  const lmIcon=(emoji,color)=>L.divIcon({
+    html:`<div style="background:${color};border:2px solid white;border-radius:6px;padding:3px 8px;font-size:10px;color:white;font-weight:bold;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.5)">${emoji}</div>`,
+    className:'',iconAnchor:[35,14]
+  });
+  site.regionLabels.forEach(z=>{
+    const m=L.marker([z.lat,z.lng],{icon:L.divIcon({html:`<div style="color:rgba(255,255,255,0.14);font-size:11px;font-weight:bold;font-family:monospace;pointer-events:none">${z.l}</div>`,className:'',iconAnchor:[18,8]}),interactive:false});
+    m.addTo(map);
+    labelMarkers.push(m);
+  });
+
+  // Draw landmarks
+  site.landmarks.forEach(lm=>{
+    const m=L.marker([lm.lat,lm.lng],{icon:lmIcon(lm.emoji,lm.color),draggable:false}).addTo(landmarkLayer);
+    m.bindPopup(`<div class="pp" style="color:${lm.color}">${lm.emoji}</div><div style="font-size:0.73rem;color:#a0c9b8;margin-bottom:4px">${lm.note}</div>`);
+  });
+
+  // Fade circles out, fly, fade back in
+  circleLayer.eachLayer(c=>c.setStyle({fillOpacity:0}));
+  circleLayerB.eachLayer(c=>c.setStyle({fillOpacity:0}));
+  map.setMinZoom(3);
+  if(window._mapInitDone){ map.flyTo(site.center, site.zoom, {duration:1.6, easeLinearity:0.15}); } else { map.setView(site.center,site.zoom,{animate:false}); window._mapInitDone=true; }
+  map.once('moveend', ()=>{
+    // On mobile the map is shorter — allow zooming out 2 extra levels
+    const isMobile=window.innerWidth<=768;
+    map.setMinZoom(Math.max(3, site.minZoom - (isMobile?2:0)));
+    buildCircles(YEARS[parseInt(document.getElementById('yr-slider').value)]);
+    let op=0;
+    const fade=setInterval(()=>{
+      op=Math.min(dotOpacity, op+0.06);
+      circleLayer.eachLayer(c=>c.setStyle({fillOpacity:op}));
+      circleLayerB.eachLayer(c=>c.setStyle({fillOpacity:op}));
+      if(op>=dotOpacity) clearInterval(fade);
+    }, 20);
+  });
+
+  // Load NDVI data from API if not yet cached, then rebuild
+  await loadSiteData(site.id);
+  rebuildStats(site);
+  if(chartOpen) rebuildChart(site);
+  const idx2=parseInt(document.getElementById('yr-slider').value);
+  renderYear(idx2);
+}
+
+// Per-site computed data cache
+const SITE_DATA={};
+const SITE_STATS={};
+
+function rebuildStats(site){
+  if(!SITE_DATA[site.id]){
+    SITE_DATA[site.id]={};
+    SITE_STATS[site.id]={};
+    // Load real satellite years
+    YEARS_REAL.forEach(yr=>{
+      const raw=site.dataObj[yr]||[];
+      const pts=raw.filter(p=>
+        p.lat>=site.bounds.minLat&&p.lat<=site.bounds.maxLat&&
+        p.lng>=site.bounds.minLng&&p.lng<=site.bounds.maxLng
+      );
+      SITE_DATA[site.id][yr]=pts;
+      if(!pts.length){SITE_STATS[site.id][yr]={score:'N/A',greenPct:0,greyPct:100,count:0};return;}
+      const vals=pts.map(p=>p.ndvi);
+      const avg=vals.reduce((a,b)=>a+b,0)/vals.length;
+      const greenPct=Math.round(vals.filter(v=>v>0.70).length/vals.length*100);
+      SITE_STATS[site.id][yr]={score:avg.toFixed(2),greenPct,greyPct:100-greenPct,count:pts.length};
+    });
+    // Compute 2030/2035 predictions synchronously here so the chart is correct on first render.
+    // Build per-point ndvi map, run linear regression on each point, average the results.
+    const ndviMap={};
+    YEARS_REAL.forEach(y=>{
+      (SITE_DATA[site.id][y]||[]).forEach(p=>{
+        const k=p.lat+','+p.lng;
+        if(!ndviMap[k]) ndviMap[k]={byYear:{}};
+        ndviMap[k].byYear[y]=p.ndvi;
+      });
+    });
+    const entries=Object.values(ndviMap);
+    let sum30=0,sum35=0,cnt=entries.length;
+    let gp30=0,gp35=0;
+    entries.forEach(e=>{
+      const {p2026:proj26,p2030,p2035}=computePredictions(e.byYear);
+      e.byYear['proj2026']=proj26; e.byYear[2030]=p2030; e.byYear[2035]=p2035;
+      sum30+=p2030; sum35+=p2035;
+      if(p2030>0.70) gp30++; if(p2035>0.70) gp35++;
+    });
+    if(cnt>0){
+      const avg30=sum30/cnt, avg35=sum35/cnt;
+      SITE_STATS[site.id][2030]={score:avg30.toFixed(2),greenPct:Math.round(gp30/cnt*100),greyPct:100-Math.round(gp30/cnt*100),count:cnt,predicted:true};
+      SITE_STATS[site.id][2035]={score:avg35.toFixed(2),greenPct:Math.round(gp35/cnt*100),greyPct:100-Math.round(gp35/cnt*100),count:cnt,predicted:true};
+    } else {
+      SITE_STATS[site.id][2030]={score:'N/A',greenPct:0,greyPct:100,count:0,predicted:true};
+      SITE_STATS[site.id][2035]={score:'N/A',greenPct:0,greyPct:100,count:0,predicted:true};
+    }
+  }
+}
+
+// ══════════════════════════════════════════════
+// CHART
+// ══════════════════════════════════════════════
+let trendChart=null;
+function rebuildChart(site){
+  if(!chartOpen) return; // chart collapsed — rebuilds when user opens it
+  // Observed: 2019–2025 only (index 0–6). 2026 uses a different seasonal window so excluded from trend.
+  const realPcts=YEARS.map((yr,i)=>i<7?((SITE_STATS[site.id]&&SITE_STATS[site.id][yr])?SITE_STATS[site.id][yr].greenPct:null):null);
+  // 2026 partial season — shown as isolated orange dot, not connected to trend line
+  const partialPcts=YEARS.map((yr,i)=>{
+    if(yr!==2026)return null;
+    const s=SITE_STATS[site.id]&&SITE_STATS[site.id][2026];
+    return s?s.greenPct:null;
+  });
+  // Projected: 2030 and 2035
+  const predPcts=YEARS.map((yr,i)=>{
+    if(yr!==2030&&yr!==2035)return null;
+    const s=SITE_STATS[site.id]&&SITE_STATS[site.id][yr];
+    return s?s.greenPct:null;
+  });
+  const nonNullReal=realPcts.filter(v=>v!==null);
+  if(trendChart){trendChart.destroy();trendChart=null;}
+  // Always create a fresh canvas so Chart.js gets a clean sized element
+  const body=document.getElementById('chart-body');
+  const oldCanvas=body.querySelector('canvas');
+  if(oldCanvas) oldCanvas.remove();
+  const canvas=document.createElement('canvas');
+  canvas.height=160;
+  body.appendChild(canvas);
+  trendChart=new Chart(canvas.getContext('2d'),{
+    type:'line',
+    data:{labels:YEARS.map(String),datasets:[
+      {
+        label:'Observed (2019–2025)',data:realPcts,
+        borderColor:'#27ae60',backgroundColor:'rgba(39,174,96,0.08)',
+        borderWidth:2.5,
+        pointBackgroundColor:realPcts.map(v=>v===null?'transparent':v===Math.min(...nonNullReal)?'#e74c3c':v===Math.max(...nonNullReal)?'#1a7a2e':'#27ae60'),
+        pointRadius:realPcts.map(v=>v===null?0:5),
+        fill:true,tension:0.35,spanGaps:false
+      },
+      {
+        label:'2026 partial (Apr–Jun)',data:partialPcts,
+        borderColor:'#f39c12',backgroundColor:'rgba(243,156,18,0.15)',
+        borderWidth:0,
+        pointBackgroundColor:'#f39c12',pointBorderColor:'#f39c12',
+        pointRadius:partialPcts.map(v=>v===null?0:7),
+        pointStyle:'triangle',
+        fill:false,tension:0,spanGaps:false,showLine:false
+      },
+      {
+        label:'Projected',data:predPcts,
+        borderColor:'#9b59b6',backgroundColor:'rgba(155,89,182,0.06)',
+        borderWidth:2,borderDash:[5,4],
+        pointBackgroundColor:'#9b59b6',
+        pointRadius:predPcts.map(v=>v===null?0:4),
+        fill:true,tension:0.35,spanGaps:false
+      }
+    ]},
+    options:{
+      plugins:{
+        legend:{display:true,labels:{color:'#6a9a88',font:{size:9},boxWidth:12,filter:item=>item.datasetIndex!==1||partialPcts.some(v=>v!==null)}},
+        tooltip:{callbacks:{label:ctx=>{
+          if(ctx.datasetIndex===1)return(ctx.raw??'—')+'% green (partial season — Apr–Jun only, not comparable to full-year data)';
+          if(ctx.datasetIndex===2)return(ctx.raw??'—')+'% green (projected)';
+          return(ctx.raw??'—')+'% green';
+        }}}
+      },
+      scales:{
+        x:{ticks:{color:'#6a9a88',font:{size:9}},grid:{color:'#1a2e22'}},
+        y:{ticks:{color:'#6a9a88',font:{size:9},callback:v=>v+'%'},grid:{color:'#1a2e22'},
+          min:(()=>{const vals=[...realPcts,...partialPcts,...predPcts].filter(v=>v!=null);return vals.length?Math.max(0,Math.floor((Math.min(...vals)-8)/10)*10):20;})(),
+          max:(()=>{const vals=[...realPcts,...partialPcts,...predPcts].filter(v=>v!=null);return vals.length?Math.min(100,Math.ceil((Math.max(...vals)+5)/5)*5):100;})()}
+      }
+    }
+  });
+}
+
+// ══════════════════════════════════════════════
+// RENDER YEAR
+// ══════════════════════════════════════════════
+function renderYear(idx){
+  const site=SITES[currentSiteIdx];
+  const yr=YEARS[idx];
+  const s=(SITE_STATS[site.id]&&SITE_STATS[site.id][yr])||{score:'N/A',greenPct:0,greyPct:100,count:0};
+
+  const isPredicted=yr>2026;
+  const isPartial=yr===2026;
+  document.getElementById('yr-label').childNodes[0].textContent=yr;
+  document.getElementById('predict-badge').classList.toggle('show',isPredicted);
+  document.getElementById('partial-badge').classList.toggle('show',isPartial);
+  const ctxArr=site.id==='chisinau'?CONTEXTS_CHISINAU:site.id==='lozova'?CONTEXTS_LOZOVA:CONTEXTS;
+  document.getElementById('yr-context').textContent=ctxArr[idx];
+  document.getElementById('yr-note').innerHTML=site.yearNotes[yr]||(isPredicted?`<strong style="color:#9b59b6">🔮 Predicted</strong> — based on linear regression of 2019–2026 satellite data per location. Actual outcomes depend on policy, development, and climate trends.`:'');
+  // Data quality banner — suppress for predicted years
+  const flag=(!isPredicted&&site.dataFlags&&site.dataFlags[yr]);
+  const banner=document.getElementById('data-quality-banner');
+  document.getElementById('data-quality-msg').textContent=flag||'';
+  banner.style.display=flag?'block':'none';
+  document.getElementById('s-score').textContent=s.predicted?`~${s.score}`:s.score;
+  document.getElementById('s-green').textContent=s.count?(s.predicted?`~${s.greenPct}%`:s.greenPct+'%'):'—';
+  document.getElementById('s-grey').textContent=s.count?(s.predicted?`~${s.greyPct}%`:s.greyPct+'%'):'—';
+  document.getElementById('s-pts').textContent=s.count||'—';
+  document.getElementById('yr-slider').style.setProperty('--pct',(idx/9*100)+'%');
+  // Prediction discussion card shows on 2026 (last real year) and 2030/2035 (forecast years)
+  document.getElementById('predict-card').classList.add('show');
+  if(idx>=7){
+    if(isPredicted){
+      document.getElementById('predict-text').textContent=`This is the model's forecast for ${yr} — based on linear regression of each dot's 2019–2026 trend. What do you think? Will the real ${yr} match this?`;
+      document.getElementById('predict-bullets').innerHTML=site.predictBullets.map(b=>`<li>${b}</li>`).join('');
+    } else {
+      document.getElementById('predict-text').textContent=site.predictText;
+      document.getElementById('predict-bullets').innerHTML=site.predictBullets.map(b=>`<li>${b}</li>`).join('');
+    }
+  }
+
+  const tb=document.getElementById('trend-badge');
+  if(idx===0){tb.className='trend neutral';tb.textContent='📍 Starting point — 2019 pre-COVID data';}
+  else if(!s.count&&!s.predicted){tb.className='trend neutral';tb.textContent='⏳ Data coming soon';}
+  else if(isPredicted){
+    const prev=SITE_STATS[site.id][YEARS[idx-1]];
+    const diff=s.greenPct-(prev?prev.greenPct:s.greenPct);
+    const icon=diff>0?'▲ +':'▼ ';
+    tb.className=diff>0?'trend up':diff<0?'trend down':'trend neutral';
+    tb.textContent=diff!==0?`${icon}${Math.abs(diff)}% projected vs ${YEARS[idx-1]}`:`→ No change projected from ${YEARS[idx-1]}`;
+  }
+  else{
+    const prev=SITE_STATS[site.id][YEARS[idx-1]];
+    const diff=s.greenPct-(prev?prev.greenPct:s.greenPct);
+    if(diff>0){tb.className='trend up';tb.textContent=`▲ +${diff}% more green than ${YEARS[idx-1]}`;}
+    else if(diff<0){tb.className='trend down';tb.textContent=`▼ ${Math.abs(diff)}% less green than ${YEARS[idx-1]}`;}
+    else{tb.className='trend neutral';tb.textContent=`→ No change from ${YEARS[idx-1]}`;}
+  }
+
+  if(satMode)loadSatOverlay(yr);
+  buildCircles(yr);
+}
+
+function onSlide(val){renderYear(parseInt(val));}
+
+// ══════════════════════════════════════════════
+// CIRCLES — persistent circles, recolored on year change (no flash)
+// ══════════════════════════════════════════════
+let persistentCircles = [];   // [{circle, ndviByYear:{2019:0.7,...}, region, hood}]
+let persistentSiteId  = null; // which site the circles belong to
+
+function buildCircles(yr){
+  if(!dotsVisible){
+    circleLayer.clearLayers();circleLayerB.clearLayers();
+    persistentCircles=[];persistentSiteId=null;
+    return;
+  }
+  const site=SITES[currentSiteIdx];
+
+  // If switching to a different site, tear down and rebuild from scratch
+  if(persistentSiteId!==site.id){
+    circleLayer.clearLayers();circleLayerB.clearLayers();
+    persistentCircles=[];
+    persistentSiteId=site.id;
+
+    // Build one circle per unique lat/lng using 2019 as the base position
+    const baseYr=YEARS_REAL[0];
+    const basePts=(SITE_DATA[site.id]&&SITE_DATA[site.id][baseYr])||[];
+
+    // Index all REAL years' ndvi values by "lat,lng" key, then add predictions
+    const ndviMap={};
+    YEARS_REAL.forEach(y=>{
+      const pts=(SITE_DATA[site.id]&&SITE_DATA[site.id][y])||[];
+      pts.forEach(p=>{
+        const k=p.lat+','+p.lng;
+        if(!ndviMap[k]) ndviMap[k]={lat:p.lat,lng:p.lng,byYear:{}};
+        ndviMap[k].byYear[y]=p.ndvi;
+      });
+    });
+    // Compute linear regression predictions for 2030 and 2035 per dot
+    let sumPred2030=0, sumPred2035=0, predCount=0;
+    Object.values(ndviMap).forEach(entry=>{
+      const {p2026:proj26,p2030,p2035}=computePredictions(entry.byYear);
+      entry.byYear['proj2026']=proj26; entry.byYear[2030]=p2030; entry.byYear[2035]=p2035;
+      sumPred2030+=p2030; sumPred2035+=p2035; predCount++;
+    });
+    // Store predicted stats so snapshot panel shows real numbers
+    if(predCount&&SITE_STATS[site.id]){
+      const avg30=sumPred2030/predCount, avg35=sumPred2035/predCount;
+      const allEntries=Object.values(ndviMap);
+      const gp30=Math.round(allEntries.filter(e=>e.byYear[2030]>0.70).length/predCount*100);
+      const gp35=Math.round(allEntries.filter(e=>e.byYear[2035]>0.70).length/predCount*100);
+      SITE_STATS[site.id][2030]={score:avg30.toFixed(2),greenPct:gp30,greyPct:100-gp30,count:predCount,predicted:true};
+      SITE_STATS[site.id][2035]={score:avg35.toFixed(2),greenPct:gp35,greyPct:100-gp35,count:predCount,predicted:true};
+    }
+
+    const colorYrInit=(yr===2026)?'proj2026':yr; // 2026 — use regression projection per point
+    let belowCount=0;
+    Object.values(ndviMap).forEach(entry=>{
+      const ndvi=entry.byYear[colorYrInit]??entry.byYear[yr]??entry.byYear[baseYr]??0.5;
+      const base2019=entry.byYear[2019]??ndvi;
+      const color=relativeMode?getColorRelative(ndvi-base2019):getColor(ndvi);
+      const belowPolicy=policyMode&&ndvi<policyThreshold;
+      if(belowPolicy)belowCount++;
+      const region=site.getRegion(entry.lat,entry.lng);
+      const hood=site.getNeighborhood(entry.lat,entry.lng);
+      const c=L.circle([entry.lat,entry.lng],{
+        radius:site.circleRadius,
+        fillColor:belowPolicy?'#e74c3c':color,
+        color:belowPolicy?'#fff':'transparent',
+        weight:belowPolicy?2:0,
+        fillOpacity:policyMode?(belowPolicy?0.95:0.2):dotOpacity
+      }).addTo(circleLayer);
+
+      persistentCircles.push({c, byYear:entry.byYear, region, hood});
+
+      c.on('mouseover',()=>{
+        const curNdvi=entry.byYear[yr]??0.5;
+        const cur2019=entry.byYear[2019]??curNdvi;
+        const delta=curNdvi-cur2019;
+        const curColor=relativeMode?getColorRelative(delta):getColor(curNdvi);
+        const lbl=relativeMode?getLabelRelative(delta):getLabel(curNdvi);
+        const pct=Math.round(curNdvi*100);
+        const deltaPct=Math.round(delta*100);
+        const deltaTxt=deltaPct>0?`+${deltaPct}%`:deltaPct===0?'no change':`${deltaPct}%`;
+        speak(`${lbl.text}. ${pct} percent green. ${hood}.`);
+        document.getElementById('hover-box').innerHTML=
+          `<div class="big" style="color:${curColor}">${lbl.emoji} ${lbl.text}</div>
+          <div class="sub">📍 ${site.regionLabel} ${region} · ${hood}</div>
+          <div class="pct-bar"><div class="pct-fill" style="width:${pct}%;background:${curColor}"></div></div>
+          <div style="font-size:0.68rem;color:#6a9a88">Green: <strong style="color:${curColor}">${pct}%</strong>${relativeMode?` · vs 2019: <strong style="color:${curColor}">${deltaTxt}</strong>`:` · Urban: <strong style="color:#e74c3c">${100-pct}%</strong>`}</div>`;
+        c.setStyle({fillOpacity:1,color:'#fff',weight:1.5});
+      });
+      c.on('mouseout',()=>{
+        document.getElementById('hover-box').innerHTML='<span style="color:#3a5a4a">Hover any circle to see details</span>';
+        c.setStyle({fillOpacity:dotOpacity,color:'transparent',weight:0});
+      });
+      c.on('click',()=>{
+        const curNdvi=entry.byYear[yr]??0.5;
+        const curColor=getColor(curNdvi);
+        const lbl=getLabel(curNdvi);
+        c.bindPopup(
+          `<div class="pp" style="color:${curColor}">${lbl.emoji} ${lbl.text}</div>
+          <div style="font-size:0.72rem;color:#a0c9b8;margin-bottom:6px">📍 ${site.regionLabel} ${region} · ${hood}</div>
+          <div class="pct-bar"><div class="pct-fill" style="width:${Math.round(curNdvi*100)}%;background:${curColor}"></div></div>
+          <div style="font-size:0.68rem;color:#6a9a88;margin-top:4px">Green: <strong style="color:${curColor}">${Math.round(curNdvi*100)}%</strong></div>`,
+          {maxWidth:220,autoClose:true,closeOnClick:true}
+        ).openPopup();
+      });
+    });
+    updatePolicyResult(belowCount);
+    // Predictions are now ready — refresh chart so projected line appears
+    rebuildChart(site);
+    return;
+  }
+
+  // Same site — just recolor existing circles in place (zero flash)
+  // For partial-season 2026, color dots by 2025 values (last full season)
+  // so the spatial pattern isn't distorted by early-spring undercount.
+  // In relative mode, 2026 uses Apr–Jun data (different window than Jul–Aug baseline) — use 2025 proxy
+  const colorYr=(yr===2026)?'proj2026':yr; // 2026 — use regression projection per point
+  let belowCount=0;
+  persistentCircles.forEach(({c,byYear})=>{
+    const ndvi=byYear[colorYr]??byYear[yr]??0.5;
+    const base2019=byYear[2019]??ndvi;
+    const color=relativeMode?getColorRelative(ndvi-base2019):getColor(ndvi);
+    const belowPolicy=policyMode&&ndvi<policyThreshold;
+    if(belowPolicy)belowCount++;
+    c.setStyle({
+      fillColor:belowPolicy?'#e74c3c':color,
+      fillOpacity:policyMode?(belowPolicy?0.95:0.2):dotOpacity,
+      color:'transparent',
+      weight:0
+    });
+  });
+  updatePolicyResult(belowCount);
+}
+
+// ══════════════════════════════════════════════
+// CONTROLS
+// ══════════════════════════════════════════════
+function toggleMapStyle(isDark){
+  if(satMode)return;
+  if(isDark){map.removeLayer(lightTile);darkTile.addTo(map);}
+  else{map.removeLayer(darkTile);lightTile.addTo(map);}
+}
+
+function loadSatOverlay(yr){
+  if(satOverlay){map.removeLayer(satOverlay);satOverlay=null;}
+  if(!satMode)return;
+  const site=SITES[currentSiteIdx];
+  satOverlay=L.imageOverlay(site.satPrefix+yr+'.jpg',site.satBounds,{opacity:0.85});
+  satOverlay.addTo(map);
+  satOverlay.on('error',()=>{
+    document.getElementById('sat-missing').style.display='block';
+    setTimeout(()=>document.getElementById('sat-missing').style.display='none',4000);
+  });
+}
+
+function toggleSatellite(on){
+  satMode=on;
+  if(on){const idx=parseInt(document.getElementById('yr-slider').value);loadSatOverlay(YEARS[idx]);}
+  else{if(satOverlay){map.removeLayer(satOverlay);satOverlay=null;}}
+}
+
+function updateOpacity(val){
+  val=parseInt(val);dotOpacity=val/100;
+  document.getElementById('opacity-val').textContent=val+'%';
+  document.getElementById('opacity-slider').style.setProperty('--op',val+'%');
+  if(val===0){document.getElementById('sw-dots').checked=false;dotsVisible=false;circleLayer.clearLayers();circleLayerB.clearLayers();persistentCircles=[];persistentSiteId=null;}
+  else{
+    if(!dotsVisible){document.getElementById('sw-dots').checked=true;dotsVisible=true;const idx=parseInt(document.getElementById('yr-slider').value);buildCircles(YEARS[idx]);}
+    else{persistentCircles.forEach(({c})=>c.setStyle({fillOpacity:dotOpacity}));}
+  }
+}
+
+function toggleColorblind(on){
+  cbMode=on;currentColors=on?{...COLORS_CB}:{...COLORS_NORMAL};
+  ['vhigh','high','mid','low','vlow'].forEach(k=>{
+    const el=document.getElementById('sw-'+k);
+    if(el)el.style.background=on?COLORS_CB[k]:COLORS_NORMAL[k];
+  });
+  const idx=parseInt(document.getElementById('yr-slider').value);buildCircles(YEARS[idx]);
+}
+
+function toggleDots(on){
+  dotsVisible=on;
+  const idx=parseInt(document.getElementById('yr-slider').value);
+  if(on){buildCircles(YEARS[idx]);}
+  else{circleLayer.clearLayers();circleLayerB.clearLayers();persistentCircles=[];persistentSiteId=null;}
+}
+
+function toggleLandmarks(on){
+  if(on)landmarkLayer.addTo(map);else map.removeLayer(landmarkLayer);
+}
+
+function toggleRelative(on){
+  relativeMode=on;
+  persistentSiteId=null;
+  const idx=parseInt(document.getElementById('yr-slider').value);
+  buildCircles(YEARS[idx]);
+  document.getElementById('legend-relative').classList.toggle('active-legend',on);
+  document.getElementById('legend-absolute').classList.toggle('active-legend',!on);
+}
+
+function togglePolicy(on){
+  policyMode=on;
+  document.getElementById('policy-controls').style.display=on?'block':'none';
+  if(!on){
+    document.getElementById('policy-result').style.display='none';
+  }
+  persistentSiteId=null;
+  const idx=parseInt(document.getElementById('yr-slider').value);
+  buildCircles(YEARS[idx]);
+}
+
+function updatePolicyThreshold(val){
+  policyThreshold=parseInt(val)/100;
+  document.getElementById('policy-val').textContent=val+'%';
+  // Recolor in place — no full rebuild needed
+  const yr=YEARS[parseInt(document.getElementById('yr-slider').value)];
+  let belowCount=0;
+  persistentCircles.forEach(({c,byYear})=>{
+    const ndvi=byYear[yr]??0.5;
+    const base2019=byYear[2019]??ndvi;
+    const color=relativeMode?getColorRelative(ndvi-base2019):getColor(ndvi);
+    const below=ndvi<policyThreshold;
+    if(below)belowCount++;
+    c.setStyle({
+      fillColor:below?'#e74c3c':color,
+      fillOpacity:below?0.95:0.2,
+      color:below?'#fff':'transparent',
+      weight:below?2:0
+    });
+  });
+  updatePolicyResult(belowCount);
+}
+
+function updatePolicyResult(belowCount){
+  const el=document.getElementById('policy-result');
+  if(!policyMode){el.style.display='none';return;}
+  const total=persistentCircles.length;
+  if(!total){el.style.display='none';return;}
+  const pct=Math.round(belowCount/total*100);
+  const threshPct=Math.round(policyThreshold*100);
+  el.style.display='block';
+  if(belowCount===0){
+    el.style.color='#2ecc71';
+    el.style.borderColor='rgba(46,204,113,0.3)';
+    el.style.background='rgba(46,204,113,0.08)';
+    el.innerHTML=`✅ All zones meet the ${threshPct}% green threshold.`;
+  } else {
+    el.style.color='#e74c3c';
+    el.style.borderColor='rgba(231,76,60,0.3)';
+    el.style.background='rgba(231,76,60,0.08)';
+    el.innerHTML=`⚠️ <strong>${belowCount} of ${total} zones (${pct}%)</strong> are below the ${threshPct}% green policy threshold. These areas need intervention.`;
+  }
+}
+
+let controlsOpen=true;
+let presenterSidebarOpen=false;
+function togglePresenterSidebar(){
+  presenterSidebarOpen=!presenterSidebarOpen;
+  document.getElementById('presenter-sidebar-body').style.maxHeight=presenterSidebarOpen?'200px':'0';
+  document.getElementById('presenter-sidebar-arrow').style.transform=presenterSidebarOpen?'rotate(180deg)':'';
+}
+function toggleControls(){
+  controlsOpen=!controlsOpen;
+  document.getElementById('controls-body').style.maxHeight=controlsOpen?'500px':'0';
+  document.getElementById('controls-arrow').style.transform=controlsOpen?'':'rotate(180deg)';
+}
+let timelineOpen=true;
+function toggleTimeline(){
+  timelineOpen=!timelineOpen;
+  document.getElementById('timeline-body').style.maxHeight=timelineOpen?'600px':'0';
+  document.getElementById('timeline-arrow').style.transform=timelineOpen?'':'rotate(180deg)';
+}
+let snapshotOpen=true;
+function toggleSnapshot(){
+  snapshotOpen=!snapshotOpen;
+  document.getElementById('snapshot-body').style.maxHeight=snapshotOpen?'300px':'0';
+  document.getElementById('snapshot-arrow').style.transform=snapshotOpen?'':'rotate(180deg)';
+}
+let spotDetailOpen=true;
+function toggleSpotDetail(){
+  spotDetailOpen=!spotDetailOpen;
+  document.getElementById('spotdetail-body').style.maxHeight=spotDetailOpen?'300px':'0';
+  document.getElementById('spotdetail-arrow').style.transform=spotDetailOpen?'':'rotate(180deg)';
+}
+let hypothesisOpen=true;
+function toggleHypothesis(){
+  hypothesisOpen=!hypothesisOpen;
+  document.getElementById('hypothesis-body').style.maxHeight=hypothesisOpen?'400px':'0';
+  document.getElementById('hypothesis-arrow').style.transform=hypothesisOpen?'':'rotate(180deg)';
+}
+let colorsOpen=true;
+function toggleColors(){
+  colorsOpen=!colorsOpen;
+  document.getElementById('colors-body').style.maxHeight=colorsOpen?'900px':'0';
+  document.getElementById('colors-arrow').style.transform=colorsOpen?'':'rotate(180deg)';
+}
+let chartOpen=false;
+function toggleChart(){
+  chartOpen=!chartOpen;
+  const body=document.getElementById('chart-body');
+  const arrow=document.getElementById('chart-arrow');
+  if(chartOpen){
+    body.style.maxHeight='300px';
+    arrow.style.transform='';
+    // Rebuild after transition so canvas has real dimensions
+    setTimeout(()=>{
+      rebuildChart(SITES[currentSiteIdx]);
+      document.querySelector('.chart-sec').scrollIntoView({behavior:'smooth',block:'start'});
+    },380);
+  } else {
+    // Destroy chart and remove canvas before collapsing
+    if(trendChart){trendChart.destroy();trendChart=null;}
+    const c=body.querySelector('canvas');
+    if(c) c.remove();
+    body.style.maxHeight='0';
+    arrow.style.transform='rotate(180deg)';
+  }
+}
+
+let sidebarOpen=true;
+function toggleSidebar(){
+  sidebarOpen=!sidebarOpen;
+  const sb=document.querySelector('.sidebar');
+  const btn=document.getElementById('sidebar-toggle');
+  const lbl=document.getElementById('toggle-label');
+  sb.classList.toggle('collapsed',!sidebarOpen);
+  btn.classList.toggle('open',sidebarOpen);
+  // On desktop: slide the tab with the sidebar edge
+  const isVertical=document.body.classList.contains('layout-tablet')||document.body.classList.contains('layout-phone')||window.innerWidth<=700;
+  if(!isVertical){
+    btn.style.right=sidebarOpen?'300px':'0';
+    btn.style.borderRadius=sidebarOpen?'8px 0 0 8px':'8px';
+    btn.style.borderRight=sidebarOpen?'none':'1px solid #27ae60';
+    setTimeout(()=>map.invalidateSize(),320);
+  }
+  if(isVertical){
+    lbl.textContent=sidebarOpen?'▲ Hide Panel':'▼ Show Panel';
+    lbl.style.writingMode='horizontal-tb';
+    // Move site-switcher above panel when open, above toggle bar when closed
+    const sw=document.getElementById('site-switcher');
+    if(sw) sw.style.bottom=sidebarOpen?'calc(65vh + 10px)':'52px';
+    // Pan map so site center appears in the visible area (above the panel overlay)
+    const site=SITES[currentSiteIdx];
+    if(site){
+      const panelPx=window.innerHeight*0.65;
+      setTimeout(()=>{
+        map.invalidateSize();
+        if(sidebarOpen){
+          // Panel open: pan down so center is offset above the panel
+          const offset=map.latLngToContainerPoint(site.center);
+          const target=map.containerPointToLatLng([offset.x, offset.y+panelPx*0.45]);
+          map.setView(target,map.getZoom(),{animate:false});
+        } else {
+          map.setView(site.center,map.getZoom(),{animate:false});
+        }
+      },50);
+    }
+  } else {
+    lbl.textContent=sidebarOpen?'PANEL':'INFO';
+    lbl.style.writingMode='vertical-rl';
+  }
+}
+
+let dotOptsOpen=false;
+function toggleDotOptions(){
+  dotOptsOpen=!dotOptsOpen;
+  const body=document.getElementById('dot-opts-body');
+  const arrow=document.getElementById('dot-opts-arrow');
+  const btn=document.getElementById('dot-opts-btn');
+  body.style.maxHeight=dotOptsOpen?'220px':'0';
+  arrow.style.transform=dotOptsOpen?'rotate(180deg)':'';
+  btn.style.borderColor=dotOptsOpen?'#27ae60':'#1a3a28';
+  btn.style.color=dotOptsOpen?'#2ecc71':'#3a5a4a';
+}
+
+function toggleAutoPlay(){
+  const btn=document.getElementById('play-btn');
+  if(playTimer){clearInterval(playTimer);playTimer=null;btn.textContent='▶ Play';return;}
+  // If already at last step (2035), restart from 2019
+  const slider=document.getElementById('yr-slider');
+  if(parseInt(slider.value)>=9){slider.value=0;renderYear(0);}
+  btn.textContent='⏸ Pause';
+  playTimer=setInterval(()=>{
+    const cur=parseInt(slider.value);
+    if(cur>=9){clearInterval(playTimer);playTimer=null;btn.textContent='▶ Play';return;}
+    // Brief extra pause on 2026 → 2030 to let audience absorb the transition
+    const delay=cur===7?600:0;
+    setTimeout(()=>{slider.value=cur+1;renderYear(cur+1);},delay);
+  },1800);
+}
+
+function speak(text){
+  if(!ttsEnabled||!window.speechSynthesis)return;
+  window.speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text);u.rate=0.9;u.pitch=1.0;
+  const ind=document.getElementById('tts-indicator');ind.classList.add('show');
+  u.onend=()=>ind.classList.remove('show');
+  window.speechSynthesis.speak(u);
+}
+function toggleTTS(on){ttsEnabled=on;if(!on)window.speechSynthesis.cancel();}
+function setFontSize(size,btn){
+  document.querySelectorAll('.font-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.body.classList.remove('large-text','xl-text');
+  if(size==='large')document.body.classList.add('large-text');
+  if(size==='xl')document.body.classList.add('large-text','xl-text');
+}
+function setDevice(type){
+  document.body.classList.remove('layout-tablet','layout-phone');
+  if(type==='tablet')document.body.classList.add('layout-tablet');
+  if(type==='phone')document.body.classList.add('layout-phone');
+  document.querySelectorAll('.layout-btn').forEach(b=>b.classList.remove('active'));
+  const a=document.getElementById('layout-'+type);if(a)a.classList.add('active');
+  document.getElementById('device-modal').classList.remove('show');
+  // Don't persist — show modal fresh each session so device can be re-chosen
+  // Reset sidebar toggle position for the new layout
+  const btn=document.getElementById('sidebar-toggle');
+  const lbl=document.getElementById('toggle-label');
+  const isVertical=(type==='tablet'||type==='phone');
+  btn.style.right=''; btn.style.borderRadius=''; btn.style.borderRight='';
+  if(!isVertical){
+    // Desktop: always open the sidebar
+    sidebarOpen=true;
+    document.querySelector('.sidebar').classList.remove('collapsed');
+    btn.classList.add('open');
+    btn.style.right='300px';
+  }
+  if(isVertical){
+    // Collapse panel on mobile load so map fills screen immediately
+    sidebarOpen=false;
+    document.querySelector('.sidebar').classList.add('collapsed');
+    btn.classList.remove('open');
+    const sw=document.getElementById('site-switcher');
+    if(sw) sw.style.bottom='52px';
+    lbl.textContent='▼ Show Panel';
+    lbl.style.writingMode='horizontal-tb';
+    setTimeout(()=>{ btn.classList.add('nudge'); btn.addEventListener('animationend',()=>btn.classList.remove('nudge'),{once:true}); },800);
+  } else {
+    lbl.textContent='PANEL';
+    lbl.style.writingMode='vertical-rl';
+  }
+  // Use rAF×2 so the browser has fully painted the new layout before Leaflet measures
+  function snapMap(){
+    const s=SITES[currentSiteIdx];
+    map.invalidateSize();
+    if(s) map.setView(s.center,s.zoom,{animate:false});
+  }
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{ snapMap(); setTimeout(snapMap,400); }));
+}
+
+// Auto-detect device on first load — skip the modal if we can infer it
+(function autoDetectDevice(){
+  const w = window.innerWidth;
+  // First visit — auto-detect by screen width
+  if(w <= 480){
+    setDevice('phone');
+  } else if(w <= 900){
+    setDevice('tablet');
+  }
+  // Desktop: leave modal showing so user confirms
+})();
+window.addEventListener('load',()=>{
+  // Final safety snap after all resources loaded
+  const sw=document.getElementById('site-switcher');
+  const isV=document.body.classList.contains('layout-tablet')||document.body.classList.contains('layout-phone');
+  if(isV&&sw) sw.style.bottom=sidebarOpen?'calc(65vh + 10px)':'52px';
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    map.invalidateSize();
+    const s=SITES[currentSiteIdx]; if(s) map.setView(s.center,s.zoom,{animate:false});
+  }));
+});
+
+// ── Sign-in ──────────────────────────────
+let currentUser=JSON.parse(localStorage.getItem('cg_user')||'null');
+function updateSigninBtn(){
+  const btn=document.getElementById('signin-btn');
+  if(currentUser){
+    btn.textContent=`👤 ${currentUser.name}`;
+    btn.onclick=()=>{if(confirm('Sign out?')){if(window.fbSignOut)window.fbSignOut();else{currentUser=null;localStorage.removeItem('cg_user');updateSigninBtn();}}};
+  } else {btn.textContent='👤 Sign In';btn.onclick=openSignin;}
+}
+function openSignin(){
+  // Always reset why-signin to closed when modal opens
+  document.getElementById('why-signin-body').classList.remove('open');
+  document.getElementById('why-arrow').textContent='▼';
+  document.getElementById('signin-modal').classList.add('show');
+}
+function doSignIn(){
+  const name=document.getElementById('signin-name').value.trim();if(!name)return;
+  currentUser={name,email:'',since:new Date().toLocaleDateString()};
+  localStorage.setItem('cg_user',JSON.stringify(currentUser));
+  document.getElementById('signin-modal').classList.remove('show');updateSigninBtn();
+}
+updateSigninBtn();
+
+// ── Comments ─────────────────────────────
+// ── Netlify Forms helper ─────────────────────
+const ON_NETLIFY=window.location.hostname!=='localhost'&&!window.location.hostname.startsWith('127.')&&window.location.hostname!=='';
+async function netlifySubmit(formName,data){
+  if(!ON_NETLIFY){console.log('[dev] Netlify submit skipped on localhost:',formName,data);return true;}
+  try{
+    await fetch('/',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({'form-name':formName,...data}).toString()});
+    return true;
+  }catch(e){console.error('Netlify submit error:',e);return false;}
+}
+
+// ── Comments (Netlify Forms + localStorage display) ──
+function loadComments(){return JSON.parse(localStorage.getItem('cg_comments')||'[]');}
+function saveComments(arr){localStorage.setItem('cg_comments',JSON.stringify(arr));}
+function renderComments(){
+  const list=document.getElementById('fb-comments-list');
+  const prompt=document.getElementById('fb-signin-prompt');
+  if(!currentUser)prompt.style.display='block';else prompt.style.display='none';
+  const comments=loadComments().slice().reverse();
+  if(!comments.length){list.innerHTML='<div class="fb-empty">No comments yet — be the first! 🌿</div>';return;}
+  list.innerHTML=comments.map(c=>`<div class="fb-comment"><div class="author">${c.author||'Anonymous'}</div><div class="text">${c.text}</div><div class="ts">${c.date||''}</div></div>`).join('');
+}
+function toggleFeedback(){
+  const p=document.getElementById('feedback-panel');p.classList.toggle('show');
+  if(p.classList.contains('show'))renderComments();
+}
+async function submitComment(){
+  const text=document.getElementById('fb-text').value.trim();if(!text)return;
+  if(!currentUser){openSignin();return;}
+  const site=SITES[currentSiteIdx]?.id||'';
+  const yr=YEARS[parseInt(document.getElementById('yr-slider').value)]||'';
+  const entry={author:currentUser.name,text,date:new Date().toLocaleString(),site,year:yr};
+  const c=loadComments();c.push(entry);saveComments(c);
+  netlifySubmit('feedback',{author:entry.author,text,site,year:String(yr)});
+  document.getElementById('fb-text').value='';renderComments();
+}
+
+// ── Why sign in toggle ────────────────────────
+function toggleWhySignin(btn){
+  const body=document.getElementById('why-signin-body');
+  const arrow=document.getElementById('why-arrow');
+  body.classList.toggle('open');
+  arrow.textContent=body.classList.contains('open')?'▲':'▼';
+}
+
+// ── Take Action hub ───────────────────────────
+function openTakeAction(){document.getElementById('action-hub-modal').classList.add('show');}
+
+// ── Petition ──────────────────────────────────
+function openPetition(){
+  // Pre-fill name from signed-in user
+  if(currentUser)document.getElementById('pet-name').value=currentUser.name||'';
+  document.getElementById('petition-success').style.display='none';
+  document.getElementById('petition-form-body').style.display='block';
+  document.getElementById('pet-error').style.display='none';
+  document.getElementById('petition-modal').classList.add('show');
+}
+async function submitPetition(){
+  const name=document.getElementById('pet-name').value.trim();
+  const consent=document.getElementById('pet-consent').checked;
+  const err=document.getElementById('pet-error');
+  if(!name){err.textContent='Please enter your name.';err.style.display='block';return;}
+  if(!consent){err.textContent='Please check the consent box to sign the petition.';err.style.display='block';return;}
+  err.style.display='none';
+  const data={
+    name,
+    email:document.getElementById('pet-email').value.trim(),
+    org:document.getElementById('pet-org').value.trim(),
+    role:document.getElementById('pet-role').value,
+    message:document.getElementById('pet-msg').value.trim(),
+    consent:'yes',
+    site:SITES[currentSiteIdx]?.id||'global'
+  };
+  await netlifySubmit('petition',data);
+  // Save to localStorage so user can see their own submission
+  const sigs=JSON.parse(localStorage.getItem('cg_petitions')||'[]');
+  sigs.push({...data,date:new Date().toLocaleString()});
+  localStorage.setItem('cg_petitions',JSON.stringify(sigs));
+  document.getElementById('petition-form-body').style.display='none';
+  document.getElementById('petition-success').style.display='block';
+}
+
+// ── Pledge ────────────────────────────────────
+let selectedPledge='';
+function openPledge(){
+  if(currentUser)document.getElementById('pledge-name').value=currentUser.name||'';
+  selectedPledge='';
+  document.querySelectorAll('.pledge-opt').forEach(o=>o.classList.remove('selected'));
+  document.getElementById('pledge-success').style.display='none';
+  document.getElementById('pledge-form-body').style.display='block';
+  document.getElementById('pledge-error').style.display='none';
+  document.getElementById('pledge-anon').checked=false;
+  document.getElementById('pledge-name-row').style.display='block';
+  document.getElementById('pledge-modal').classList.add('show');
+}
+function selectPledge(el,text){
+  document.querySelectorAll('.pledge-opt').forEach(o=>o.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedPledge=text;
+}
+async function submitPledge(){
+  const anon=document.getElementById('pledge-anon')?.checked||false;
+  const name=document.getElementById('pledge-name').value.trim();
+  const consent=document.getElementById('pledge-consent').checked;
+  const err=document.getElementById('pledge-error');
+  if(!selectedPledge){err.textContent='Please choose a pledge.';err.style.display='block';return;}
+  if(!anon&&!name){err.textContent='Please enter your name, or check "Post anonymously".';err.style.display='block';return;}
+  if(!consent){err.textContent='Please check the consent box.';err.style.display='block';return;}
+  err.style.display='none';
+  const data={name:anon?'':name,anonymous:anon,org:document.getElementById('pledge-org').value.trim(),pledge:selectedPledge,note:document.getElementById('pledge-note').value.trim(),consent:'yes'};
+  // Netlify Forms (admin copy) + Firestore (community feed)
+  await Promise.all([
+    netlifySubmit('pledge',{...data,anonymous:String(anon)}),
+    window.fbPostPledge?window.fbPostPledge(data):Promise.resolve()
+  ]);
+  document.getElementById('pledge-form-body').style.display='none';
+  document.getElementById('pledge-success').style.display='block';
+  if(communityVisible)loadAndDrawMarks();
+}
+
+// ── Community marks ───────────────────────────
+const TYPE_COLORS={live:'#2ecc71',work:'#3498db',school:'#f1c40f'};
+const TYPE_ICONS={live:'🏠',work:'💼',school:'🎓'};
+
+function markDotHtml(type){
+  const c=TYPE_COLORS[type]||'#aaa';
+  return `<div style="background:${c};border:2px solid #fff;border-radius:50%;width:13px;height:13px;box-shadow:0 0 6px ${c}88;"></div>`;
+}
+
+// Draw all marks from Firestore onto communityLayer
+async function loadAndDrawMarks(){
+  communityLayer.clearLayers();
+  document.getElementById('badge-live').textContent='🏠 … live';
+  document.getElementById('badge-work').textContent='💼 … work';
+  document.getElementById('badge-school').textContent='🎓 … school';
+  document.getElementById('comm-feed').innerHTML='<div class="comm-empty">Loading…</div>';
+  try{
+    const marks=window.fbLoadMarks?await window.fbLoadMarks():[];
+    const counts={live:0,work:0,school:0};
+    marks.forEach(m=>{
+      if(counts[m.type]!==undefined)counts[m.type]++;
+      const icon=L.divIcon({className:'',html:markDotHtml(m.type),iconSize:[13,13],iconAnchor:[6,6]});
+      const marker=L.marker([parseFloat(m.lat),parseFloat(m.lng)],{icon}).addTo(communityLayer);
+      const label=m.anonymous?'Anonymous':(m.name||'Anonymous');
+      marker.bindPopup(
+        `<div style="font-size:0.75rem;line-height:1.5;min-width:140px;">
+          <div style="font-weight:700;color:${TYPE_COLORS[m.type]||'#aaa'}">${TYPE_ICONS[m.type]||'📍'} ${label}</div>
+          <div style="color:#6a9a88;font-size:0.65rem;margin-bottom:4px;">${m.type==='live'?'Lives here':m.type==='work'?'Works here':'Goes to school here'}</div>
+          ${m.comment?`<div style="color:#a0c9b8">"${m.comment}"</div>`:''}
+        </div>`,
+        {maxWidth:200}
+      );
+    });
+    document.getElementById('badge-live').textContent=`🏠 ${counts.live} live here`;
+    document.getElementById('badge-work').textContent=`💼 ${counts.work} work here`;
+    document.getElementById('badge-school').textContent=`🎓 ${counts.school} go to school`;
+    // Build feed
+    const feed=document.getElementById('comm-feed');
+    if(!marks.length){feed.innerHTML='<div class="comm-empty">No marks yet — be the first!</div>';return;}
+    feed.innerHTML=marks.slice(0,30).map(m=>{
+      const label=m.anonymous?'Anonymous':(m.name||'Anonymous');
+      const ts=m.date?.toDate?.().toLocaleDateString()||m.date||'';
+      return `<div class="comm-item ${m.type||''}">
+        <div class="ci-top">
+          <span style="color:${TYPE_COLORS[m.type]||'#aaa'};font-size:0.85rem;">${TYPE_ICONS[m.type]||'📍'}</span>
+          <span class="ci-type" style="color:${TYPE_COLORS[m.type]||'#aaa'}">${m.type||'mark'}</span>
+          <span class="ci-name">${label}</span>
+        </div>
+        ${m.comment?`<div class="ci-text">"${m.comment}"</div>`:''}
+        <div class="ci-time">${ts}</div>
+      </div>`;
+    }).join('');
+    // Also load pledges into feed
+    const pledges=window.fbLoadPledges?await window.fbLoadPledges():[];
+    document.getElementById('badge-pledge').textContent=`🌱 ${pledges.length} pledge${pledges.length!==1?'s':''}`;
+    pledges.slice(0,10).forEach(p=>{
+      const label=p.anonymous?'Anonymous':(p.name||'Anonymous');
+      feed.innerHTML+=`<div class="comm-item pledge">
+        <div class="ci-top">
+          <span style="color:#9b59b6;font-size:0.85rem;">🌱</span>
+          <span class="ci-type" style="color:#9b59b6">pledge</span>
+          <span class="ci-name">${label}</span>
+        </div>
+        <div class="ci-text">${p.pledge||''}</div>
+        ${p.note?`<div class="ci-text" style="color:#6a9a88;font-style:italic;">"${p.note}"</div>`:''}
+      </div>`;
+    });
+  }catch(e){
+    document.getElementById('comm-feed').innerHTML='<div class="comm-empty">Could not load — check connection.</div>';
+    console.error(e);
+  }
+}
+
+let communityOpen=true;
+function toggleCommunitySection(){
+  communityOpen=!communityOpen;
+  document.getElementById('community-body').style.maxHeight=communityOpen?'600px':'0';
+  document.getElementById('community-arrow').style.transform=communityOpen?'':'rotate(180deg)';
+}
+function toggleCommunityMarks(on){
+  communityVisible=on;
+  if(on){loadAndDrawMarks();}
+  else{communityLayer.clearLayers();}
+}
+
+// ── Add Your Mark modal flow ──────────────────
+let selectedMarkType='';
+function openAddMark(){
+  selectedMarkType='';
+  document.getElementById('mark-consent-step').style.display='block';
+  document.getElementById('mark-drop-step').style.display='none';
+  document.getElementById('mark-form-step').style.display='none';
+  document.getElementById('mark-success').style.display='none';
+  document.getElementById('mark-modal').classList.add('show');
+}
+function proceedToMarkDrop(){
+  document.getElementById('mark-consent-step').style.display='none';
+  document.getElementById('mark-drop-step').style.display='block';
+  document.getElementById('mark-modal').classList.remove('show');
+  markMode=true;
+  document.body.classList.add('mark-mode');
+  showToast('📍 Click anywhere on the map to drop your pin');
+}
+function cancelMark(){
+  markMode=false;
+  document.body.classList.remove('mark-mode');
+  document.getElementById('mark-modal').classList.remove('show');
+  if(markPreviewMarker){map.removeLayer(markPreviewMarker);markPreviewMarker=null;}
+}
+function selectMarkType(el,type){
+  document.querySelectorAll('.mark-type').forEach(t=>t.className='mark-type');
+  el.className=`mark-type selected ${type}`;
+  selectedMarkType=type;
+  document.getElementById('mark-type-val').value=type;
+  // Recolor preview marker
+  if(markPreviewMarker){
+    markPreviewMarker.setStyle({fillColor:TYPE_COLORS[type]||'#aaa'});
+  }
+}
+function toggleMarkAnon(on){
+  document.getElementById('mark-name-row').style.display=on?'none':'block';
+}
+async function submitMark(){
+  const err=document.getElementById('mark-error');
+  const type=document.getElementById('mark-type-val').value;
+  const anon=document.getElementById('mark-anon').checked;
+  const name=document.getElementById('mark-name').value.trim();
+  const lat=document.getElementById('mark-lat').value;
+  const lng=document.getElementById('mark-lng').value;
+  if(!type){err.textContent='Please choose a mark type (Live / Work / School).';err.style.display='block';return;}
+  if(!anon&&!name){err.textContent='Please enter your name, or check "Post anonymously".';err.style.display='block';return;}
+  if(!lat||!lng){err.textContent='No location set — please click the map first.';err.style.display='block';return;}
+  err.style.display='none';
+  const data={
+    type, lat, lng,
+    name:anon?'':name,
+    anonymous:anon,
+    comment:document.getElementById('mark-comment').value.trim(),
+    site:document.getElementById('mark-site').value
+  };
+  // Save to Firestore
+  if(window.fbPostMark) await window.fbPostMark(data);
+  // Style the preview marker permanently
+  if(markPreviewMarker){
+    const icon=L.divIcon({className:'',html:markDotHtml(type),iconSize:[13,13],iconAnchor:[6,6]});
+    markPreviewMarker.setIcon(icon);
+    markPreviewMarker.bindPopup(
+      `<div style="font-size:0.75rem"><div style="font-weight:700;color:${TYPE_COLORS[type]}">${TYPE_ICONS[type]} ${anon?'Anonymous':name}</div><div style="color:#6a9a88;font-size:0.65rem">${type==='live'?'Lives here':type==='work'?'Works here':'Goes to school here'}</div>${data.comment?`<div style="color:#a0c9b8">"${data.comment}"</div>`:''}</div>`,
+      {maxWidth:200}
+    );
+    communityLayer.addLayer(markPreviewMarker);
+    markPreviewMarker=null;
+  }
+  // Show success
+  document.getElementById('mark-form-step').style.display='none';
+  document.getElementById('mark-success').style.display='block';
+  markMode=false;
+  document.body.classList.remove('mark-mode');
+  // Reload community feed if section is open
+  if(communityVisible)loadAndDrawMarks();
+  setTimeout(()=>document.getElementById('mark-modal').classList.remove('show'),2000);
+}
+
+// ── Pledge → also save to Firestore for community feed ─
+// (submitPledge already handles Netlify — add Firestore here)
+const _origSubmitPledge=typeof submitPledge==='function'?submitPledge:null;
+
+function showToast(msg){
+  let t=document.getElementById('map-toast');
+  if(!t){t=document.createElement('div');t.id='map-toast';t.style.cssText='position:absolute;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(13,22,18,0.92);border:1px solid #27ae60;border-radius:20px;padding:8px 18px;font-size:0.72rem;color:#a0c9b8;z-index:2000;pointer-events:none;transition:opacity 0.4s;white-space:nowrap;';document.getElementById('map').appendChild(t);}
+  t.textContent=msg;t.style.opacity='1';
+  clearTimeout(t._timer);t._timer=setTimeout(()=>t.style.opacity='0',3500);
+}
+
+// ── Share ─────────────────────────────────
+function shareLink(){
+  const url=window.location.href;
+  if(navigator.clipboard)navigator.clipboard.writeText(url).then(showShareToast).catch(()=>fallbackCopy(url));
+  else fallbackCopy(url);
+}
+function fallbackCopy(text){
+  const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
+  document.body.appendChild(ta);ta.select();try{document.execCommand('copy');}catch(e){}document.body.removeChild(ta);showShareToast();
+}
+function showShareToast(){
+  const t=document.getElementById('share-toast');t.style.display='block';t.style.opacity='1';
+  setTimeout(()=>{t.style.opacity='0';setTimeout(()=>t.style.display='none',300);},2000);
+}
+
+// ── Scroll hint ───────────────────────────
+const sidebar=document.querySelector('.sidebar');
+const scrollHint=document.getElementById('scroll-hint');
+sidebar.addEventListener('scroll',()=>{
+  scrollHint.classList.toggle('hidden',sidebar.scrollTop+sidebar.clientHeight>=sidebar.scrollHeight-10);
+});
+
+function toggleMobileMenu(){
+  const d=document.getElementById('mobile-menu-dropdown');
+  d.style.display=d.style.display==='flex'?'none':'flex';
+}
+// Close menu on outside tap
+document.addEventListener('click',e=>{
+  const btn=document.getElementById('mobile-menu-btn');
+  const menu=document.getElementById('mobile-menu-dropdown');
+  if(menu&&btn&&!btn.contains(e.target)&&!menu.contains(e.target)){
+    menu.style.display='none';
+  }
+});
+
+// ── NDVI DATA LOADER ──────────────────────
+// Fetches all years for a site from Django API, populates RAW_DATA / RAW_DATA_CHISINAU / RAW_DATA_LOZOVA
+const _ndviCache = {};
+async function loadSiteData(siteId) {
+  if(_ndviCache[siteId]) return; // already loaded
+  const resp = await fetch(`/api/ndvi/${siteId}/`);
+  const data = await resp.json();
+  const target = siteId==='wilmington' ? RAW_DATA
+               : siteId==='chisinau'   ? RAW_DATA_CHISINAU
+               : RAW_DATA_LOZOVA;
+  for(const [yr, pts] of Object.entries(data)){
+    target[parseInt(yr)] = pts;
+  }
+  _ndviCache[siteId] = true;
+}
+
+// ── INIT ──────────────────────────────────
+applySite(0);
+</script>
+</body>
+</html>

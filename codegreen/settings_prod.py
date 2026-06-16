@@ -1,0 +1,42 @@
+import os
+from .settings import *
+
+DEBUG = False
+SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
+
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',')
+
+# Postgres on Railway
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('PGDATABASE', ''),
+        'USER': os.environ.get('PGUSER', ''),
+        'PASSWORD': os.environ.get('PGPASSWORD', ''),
+        'HOST': os.environ.get('PGHOST', ''),
+        'PORT': os.environ.get('PGPORT', '5432'),
+    }
+}
+
+# Static files via whitenoise
+MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+# CORS — add Railway domain
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:8080',
+    'http://127.0.0.1:8080',
+    'https://degreenspace.netlify.app',
+] + [f'https://{h}' for h in ALLOWED_HOSTS if h]
+CORS_ALLOW_CREDENTIALS = True
+
+# Google OAuth — injected via env vars so credentials aren't in code
+SOCIALACCOUNT_PROVIDERS['google']['APP'] = {
+    'client_id': os.environ.get('GOOGLE_CLIENT_ID', ''),
+    'secret': os.environ.get('GOOGLE_CLIENT_SECRET', ''),
+    'key': '',
+}
+
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
