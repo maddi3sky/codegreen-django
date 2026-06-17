@@ -1393,11 +1393,13 @@ async function applySite(idx){
   labelMarkers.forEach(l=>map.removeLayer(l));
   labelMarkers=[];
 
-  // Draw study area boxes — no padding so border matches satellite imagery exactly
+  // Draw study area boxes using satBounds + one-circle-radius pad so border wraps dots
+  const PAD=0.009;
   site.studyBoxes.forEach(box=>{
+    const sb=site.satBounds||[[box.bounds.minLat,box.bounds.minLng],[box.bounds.maxLat,box.bounds.maxLng]];
     const r=L.rectangle([
-      [box.bounds.minLat,box.bounds.minLng],
-      [box.bounds.maxLat,box.bounds.maxLng]
+      [sb[0][0]-PAD,sb[0][1]-PAD],
+      [sb[1][0]+PAD,sb[1][1]+PAD]
     ],{color:box.color,weight:2,dashArray:'8 5',fillOpacity:0.02,fillColor:box.color,interactive:false});
     r.addTo(map);
     boundaryLayers.push(r);
