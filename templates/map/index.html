@@ -1159,7 +1159,7 @@ const SITES=[
       2025:'<strong>Current state — 97.9% green.</strong> +2.4pp vs 2024. You visited this village as part of the YSA STEM exchange. How does the reality of the farmland and forest compare to what the satellite saw?',
       2026:'<strong>2026 projected — ~97% green.</strong> Dot colors show what the 2019–2025 trend <em>predicts</em> for each location in Lozova. Full satellite re-export after Oct 2026 will replace this with real data.'
     },
-    hypothesis:'<strong>🔬 Urban vs. Rural Green Space</strong>Lozova is the rural control site. While Chisinau tracks the COVID development acceleration hypothesis, Lozova shows what Moldova looks like without urban construction pressure. The contrast between these two sites is itself a finding.',
+    hypothesis:'<strong>🔬 Urban vs. Rural Green Space</strong>Lozova is the rural control site. While Chisinau tracks the COVID development acceleration hypothesis, Lozova shows what Moldova looks like without urban construction pressure. The contrast between these two sites is itself a finding.<br><br><strong>Why are scores so high?</strong> The study area covers the full village boundary including surrounding agricultural fields and forest — farmland and trees vastly outnumber built surfaces. The village center does score lower (some points reach as low as 77%), but those are averaged across hundreds of green field samples. High scores here mean <em>rural</em>, not the absence of a village.',
     predictText:'You visited Lozova as part of the YSA STEM exchange. What did you observe on the ground that the satellite can\'t capture?',
     predictBullets:['How did the village compare to what the map showed?','What green space stood out on the ground?','How does rural Lozova compare to urban Chisinau?','What would change if development pressure reached here?'],
     legendBoxes:`<div class="leg-row"><div style="width:16px;height:16px;border:2px dashed #f39c12;border-radius:2px;flex-shrink:0"></div><div><div class="leg-main">Lozova Study Area</div><div class="leg-sub">Lozova village, Strășeni raion — farmland &amp; forest</div></div></div>`,
@@ -1544,7 +1544,7 @@ function rebuildChart(site){
       scales:{
         x:{ticks:{color:'#6a9a88',font:{size:9}},grid:{color:'#1a2e22'}},
         y:{ticks:{color:'#6a9a88',font:{size:9},callback:v=>v+'%'},grid:{color:'#1a2e22'},
-          min:(()=>{const vals=[...realPcts,...partialPcts,...predPcts].filter(v=>v!=null);return vals.length?Math.max(0,Math.floor((Math.min(...vals)-8)/10)*10):20;})(),
+          min:(()=>{const vals=[...realPcts,...partialPcts,...predPcts].filter(v=>v!=null);if(!vals.length)return 20;const dataMin=Math.min(...vals);const range=Math.max(...vals)-dataMin;const pad=Math.max(range*1.5,8);const computed=Math.max(0,Math.floor((dataMin-pad)/5)*5);return Math.min(computed,60);})(),
           max:(()=>{const vals=[...realPcts,...partialPcts,...predPcts].filter(v=>v!=null);return vals.length?Math.min(100,Math.ceil((Math.max(...vals)+5)/5)*5):100;})()}
       }
     }
