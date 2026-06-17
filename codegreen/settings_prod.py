@@ -6,16 +6,14 @@ SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
 
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',')
 
-# Postgres on Railway
+# Postgres on Railway — uses DATABASE_URL if available, falls back to PG* vars
+import dj_database_url
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('PGDATABASE', ''),
-        'USER': os.environ.get('PGUSER', ''),
-        'PASSWORD': os.environ.get('PGPASSWORD', ''),
-        'HOST': os.environ.get('PGHOST', ''),
-        'PORT': os.environ.get('PGPORT', '5432'),
-    }
+    'default': dj_database_url.config(
+        default=os.environ.get('DATABASE_URL', ''),
+        conn_max_age=600,
+        ssl_require=True,
+    )
 }
 
 # Static files via whitenoise
