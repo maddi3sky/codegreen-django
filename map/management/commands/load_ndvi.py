@@ -18,7 +18,6 @@ SITES_CONFIG = [
         'title': 'Code Green — Wilmington Green Space Tracker',
         'subtitle': 'YSA Global STEM Ambassadors · NASA/USGS Satellite Data · Wilmington, NC · 2019–2026',
         'js_file': 'ndvi_all_years_inline.js',
-        'js_dir': Path.home() / 'Desktop/codegreenglobal',
         'var_name': 'RAW_DATA',
     },
     {
@@ -27,7 +26,6 @@ SITES_CONFIG = [
         'title': 'Code Green MD — Chisinau Green Space Tracker',
         'subtitle': 'YSA Global STEM Ambassadors · NASA/USGS Satellite Data · Moldova · 2019–2026',
         'js_file': 'ndvi_chisinau_inline.js',
-        'js_dir': Path.home() / 'Desktop/codegreenglobal',
         'var_name': 'RAW_DATA_CHISINAU',
     },
     {
@@ -36,10 +34,23 @@ SITES_CONFIG = [
         'title': 'Code Green MD — Lozova Green Space Tracker',
         'subtitle': 'YSA Global STEM Ambassadors · NASA/USGS Satellite Data · Strășeni Raion, Moldova · 2019–2026',
         'js_file': 'ndvi_lozova_inline.js',
-        'js_dir': Path.home() / 'Desktop/codegreenglobal',
         'var_name': 'RAW_DATA_LOZOVA',
     },
 ]
+
+# Look for JS files in Django's STATICFILES_DIRS, then BASE_DIR/static
+from django.conf import settings as _settings
+BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
+
+def _find_js(filename):
+    candidates = [BASE_DIR / 'static' / filename]
+    if hasattr(_settings, 'STATICFILES_DIRS'):
+        for d in _settings.STATICFILES_DIRS:
+            candidates.append(Path(d) / filename)
+    for p in candidates:
+        if p.exists():
+            return p
+    return None
 
 
 def parse_js_file(path, var_name):
@@ -69,9 +80,9 @@ class Command(BaseCommand):
         configs = [c for c in SITES_CONFIG if not target or c['id'] == target]
 
         for cfg in configs:
-            js_path = cfg['js_dir'] / cfg['js_file']
-            if not js_path.exists():
-                self.stdout.write(self.style.WARNING(f"  Skipping {cfg['id']} — {js_path} not found"))
+            js_path = _find_js(cfg['js_file'])
+            if not js_path:
+                self.stdout.write(self.style.WARNING(f"  Skipping {cfg['id']} — {cfg['js_file']} not found in static dirs"))
                 continue
 
             self.stdout.write(f"Loading {cfg['id']} from {js_path.name}...")
