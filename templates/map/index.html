@@ -1393,12 +1393,11 @@ async function applySite(idx){
   labelMarkers.forEach(l=>map.removeLayer(l));
   labelMarkers=[];
 
-  // Draw study area boxes
-  const PAD=0.007;
+  // Draw study area boxes — no padding so border matches satellite imagery exactly
   site.studyBoxes.forEach(box=>{
     const r=L.rectangle([
-      [box.bounds.minLat-PAD,box.bounds.minLng-PAD],
-      [box.bounds.maxLat+PAD,box.bounds.maxLng+PAD]
+      [box.bounds.minLat,box.bounds.minLng],
+      [box.bounds.maxLat,box.bounds.maxLng]
     ],{color:box.color,weight:2,dashArray:'8 5',fillOpacity:0.02,fillColor:box.color,interactive:false});
     r.addTo(map);
     boundaryLayers.push(r);
@@ -1785,16 +1784,27 @@ function toggleMapStyle(isDark){
 }
 
 function loadSatOverlay(yr){
-  if(satOverlay){map.removeLayer(satOverlay);satOverlay=null;}
   if(!satMode)return;
-  if(yr>2026){return;}  // No satellite imagery for predicted years
+  if(yr>2026){if(satOverlay){map.removeLayer(satOverlay);satOverlay=null;}return;}
   const site=SITES[currentSiteIdx];
-  satOverlay=L.imageOverlay(site.satPrefix+yr+'.jpg',site.satBounds,{opacity:0.85});
-  satOverlay.addTo(map);
-  satOverlay.on('error',()=>{
+  const url=site.satPrefix+yr+'.jpg';
+  // Preload: keep old overlay visible until new image is ready, then swap — no black gap
+  const img=new Image();
+  img.onload=()=>{
+    if(satOverlay){map.removeLayer(satOverlay);satOverlay=null;}
+    satOverlay=L.imageOverlay(url,site.satBounds,{opacity:0.85});
+    satOverlay.addTo(map);
+    satOverlay.on('error',()=>{
+      document.getElementById('sat-missing').style.display='block';
+      setTimeout(()=>document.getElementById('sat-missing').style.display='none',4000);
+    });
+  };
+  img.onerror=()=>{
+    if(satOverlay){map.removeLayer(satOverlay);satOverlay=null;}
     document.getElementById('sat-missing').style.display='block';
     setTimeout(()=>document.getElementById('sat-missing').style.display='none',4000);
-  });
+  };
+  img.src=url;
 }
 
 function toggleSatellite(on){
