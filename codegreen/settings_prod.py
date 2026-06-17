@@ -18,7 +18,7 @@ DATABASES = {
 
 # Static files via whitenoise
 MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
 
 # CORS — add Railway domain
 CORS_ALLOWED_ORIGINS = [
