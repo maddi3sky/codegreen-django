@@ -1402,6 +1402,8 @@ async function applySite(idx){
 
   // Load NDVI data from API if not yet cached, then rebuild
   await loadSiteData(site.id);
+  // Force circle rebuild now that data is available
+  persistentSiteId = null;
   rebuildStats(site);
   if(chartOpen) rebuildChart(site);
   const idx2=parseInt(document.getElementById('yr-slider').value);
