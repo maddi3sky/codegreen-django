@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
   <!-- Django Auth + API (replaces Firebase) -->
   <script>
     // ── Auth ──────────────────────────────────────────────────────────────────
@@ -2448,15 +2448,15 @@ function doShareQR(){
   const url=window.location.href;
   const container=document.getElementById('qr-code');
   container.innerHTML='';
-  QRCode.toCanvas(document.createElement('canvas'),url,{width:180,margin:1},function(err,canvas){
-    if(!err){container.appendChild(canvas);}
-  });
+  new QRCode(container,{text:url,width:180,height:180,colorDark:'#000000',colorLight:'#ffffff'});
   document.getElementById('qr-container').style.display='block';
 }
 function downloadQR(){
+  const img=document.querySelector('#qr-code img');
   const canvas=document.querySelector('#qr-code canvas');
-  if(!canvas)return;
-  const a=document.createElement('a');a.href=canvas.toDataURL('image/png');a.download='codegreen-qr.png';a.click();
+  const src=img?img.src:canvas?canvas.toDataURL('image/png'):null;
+  if(!src)return;
+  const a=document.createElement('a');a.href=src;a.download='codegreen-qr.png';a.click();
 }
 function fallbackCopy(text){
   const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
