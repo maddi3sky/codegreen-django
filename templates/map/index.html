@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
   <!-- Django Auth + API (replaces Firebase) -->
   <script>
     // ── Auth ──────────────────────────────────────────────────────────────────
@@ -1013,6 +1014,25 @@
 <div id="tts-indicator">🔊 Speaking...</div>
 <div id="sat-missing" style="display:none;position:fixed;top:80px;left:50%;transform:translateX(-50%);background:#1a2e22;border:1px solid #f39c12;border-radius:8px;padding:10px 18px;font-size:0.75rem;color:#f39c12;z-index:9995;">⚠️ Satellite imagery not yet generated for this site</div>
 <div id="share-toast">✅ Link copied!</div>
+
+<!-- Share modal -->
+<div id="share-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:10010;align-items:center;justify-content:center;">
+  <div style="background:#0d1117;border:1px solid #27ae60;border-radius:14px;padding:24px;width:min(340px,92vw);text-align:center;position:relative;">
+    <button onclick="document.getElementById('share-modal').style.display='none'" style="position:absolute;top:10px;right(14px;background:none;border:none;color:#6a9a88;font-size:1.2rem;cursor:pointer;">✕</button>
+    <h3 style="color:#e0f0eb;margin:0 0 6px;">🔗 Share Code Green</h3>
+    <p style="color:#6a9a88;font-size:0.72rem;margin:0 0 16px;">Share this map with your school or community</p>
+    <div id="share-url-box" style="background:#0a1f12;border:1px solid #1a4a2e;border-radius:8px;padding:8px 12px;font-size:0.68rem;color:#27ae60;word-break:break-all;margin-bottom:14px;"></div>
+    <div style="display:flex;gap:10px;justify-content:center;margin-bottom:18px;">
+      <button onclick="doShareCopy()" style="background:#27ae60;border:none;border-radius:8px;color:white;padding:10px 20px;font-size:0.8rem;font-weight:bold;cursor:pointer;">📋 Copy Link</button>
+      <button onclick="doShareQR()" style="background:#1a2e22;border:1px solid #27ae60;border-radius:8px;color:#e0f0eb;padding:10px 20px;font-size:0.8rem;cursor:pointer;">📷 QR Code</button>
+    </div>
+    <div id="qr-container" style="display:none;margin-top:4px;">
+      <div id="qr-code" style="display:inline-block;background:white;padding:10px;border-radius:8px;"></div>
+      <p style="color:#6a9a88;font-size:0.65rem;margin-top:8px;">Scan to open on any device</p>
+      <button onclick="downloadQR()" style="background:#1a2e22;border:1px solid #27ae60;border-radius:8px;color:#e0f0eb;padding:6px 16px;font-size:0.72rem;cursor:pointer;margin-top:4px;">⬇️ Save QR Image</button>
+    </div>
+  </div>
+</div>
 
 <!-- ══════════════════════════════════════════════════════
      DATA — Wilmington loaded from file; Moldova starts empty
@@ -2414,15 +2434,36 @@ function showToast(msg){
 // ── Share ─────────────────────────────────
 function shareLink(){
   const url=window.location.href;
-  if(navigator.clipboard)navigator.clipboard.writeText(url).then(showShareToast).catch(()=>fallbackCopy(url));
+  document.getElementById('share-url-box').textContent=url;
+  document.getElementById('qr-container').style.display='none';
+  document.getElementById('qr-code').innerHTML='';
+  document.getElementById('share-modal').style.display='flex';
+}
+function doShareCopy(){
+  const url=window.location.href;
+  if(navigator.clipboard)navigator.clipboard.writeText(url).then(()=>showShareToast('✅ Link copied!')).catch(()=>fallbackCopy(url));
   else fallbackCopy(url);
+}
+function doShareQR(){
+  const url=window.location.href;
+  const container=document.getElementById('qr-code');
+  container.innerHTML='';
+  QRCode.toCanvas(document.createElement('canvas'),url,{width:180,margin:1},function(err,canvas){
+    if(!err){container.appendChild(canvas);}
+  });
+  document.getElementById('qr-container').style.display='block';
+}
+function downloadQR(){
+  const canvas=document.querySelector('#qr-code canvas');
+  if(!canvas)return;
+  const a=document.createElement('a');a.href=canvas.toDataURL('image/png');a.download='codegreen-qr.png';a.click();
 }
 function fallbackCopy(text){
   const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
-  document.body.appendChild(ta);ta.select();try{document.execCommand('copy');}catch(e){}document.body.removeChild(ta);showShareToast();
+  document.body.appendChild(ta);ta.select();try{document.execCommand('copy');}catch(e){}document.body.removeChild(ta);showShareToast('✅ Link copied!');
 }
-function showShareToast(){
-  const t=document.getElementById('share-toast');t.style.display='block';t.style.opacity='1';
+function showShareToast(msg){
+  const t=document.getElementById('share-toast');t.textContent=msg||'✅ Done';t.style.display='block';t.style.opacity='1';
   setTimeout(()=>{t.style.opacity='0';setTimeout(()=>t.style.display='none',300);},2000);
 }
 
