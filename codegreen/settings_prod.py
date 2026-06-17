@@ -24,9 +24,14 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:8080',
     'http://127.0.0.1:8080',
-    'https://degreenspace.netlify.app',
-] + [f'https://{h}' for h in ALLOWED_HOSTS if h]
+    'https://codegreen.netlify.app',
+    'https://codegreenspace.netlify.app',
+] + [f'https://{h}' for h in ALLOWED_HOSTS if h and not h.startswith('.')]
 CORS_ALLOW_CREDENTIALS = True
+
+# Allow cross-site cookies (Netlify → Railway)
+SESSION_COOKIE_SAMESITE = 'None'
+CSRF_COOKIE_SAMESITE = 'None'
 
 # Google OAuth — injected via env vars so credentials aren't in code
 SOCIALACCOUNT_PROVIDERS['google']['APP'] = {
