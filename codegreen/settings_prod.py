@@ -4,7 +4,7 @@ from .settings import *
 DEBUG = False
 SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
 
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',')
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',') + ['healthcheck.railway.app']
 
 # Postgres on Railway — uses DATABASE_URL if available, falls back to PG* vars
 import dj_database_url
