@@ -1746,6 +1746,7 @@ function toggleMapStyle(isDark){
 function loadSatOverlay(yr){
   if(satOverlay){map.removeLayer(satOverlay);satOverlay=null;}
   if(!satMode)return;
+  if(yr>2026){return;}  // No satellite imagery for predicted years
   const site=SITES[currentSiteIdx];
   satOverlay=L.imageOverlay(site.satPrefix+yr+'.jpg',site.satBounds,{opacity:0.85});
   satOverlay.addTo(map);
