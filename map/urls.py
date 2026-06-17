@@ -10,6 +10,8 @@ urlpatterns = [
     path('api/comments/<str:site_id>/<int:year>/', views.CommentList.as_view(), name='comments'),
     # User marks API
     path('api/marks/', views.UserMarkList.as_view(), name='marks'),
+    # Pledges API
+    path('api/pledges/', views.PledgeList.as_view(), name='pledges'),
     # Auth status
     path('api/auth/status/', views.auth_status, name='auth-status'),
 ]

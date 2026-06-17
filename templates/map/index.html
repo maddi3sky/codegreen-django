@@ -55,8 +55,20 @@
       const resp = await fetch(`/api/marks/?site=${site}`);
       return resp.json();
     };
-    window.fbPostPledge = async () => {};  // implement later
-    window.fbLoadPledges = async () => [];
+    window.fbPostPledge = async (name, action) => {
+      const site = SITES[currentSiteIdx]?.id || 'wilmington';
+      const resp = await fetch('/api/pledges/', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')},
+        body: JSON.stringify({name, action, site_id: site})
+      });
+      return resp.ok;
+    };
+    window.fbLoadPledges = async () => {
+      const site = SITES[currentSiteIdx]?.id || 'wilmington';
+      const resp = await fetch(`/api/pledges/?site=${site}`);
+      return resp.json();
+    };
 
     function getCookie(name){
       const v=document.cookie.match('(^|;)\s*'+name+'\s*=\s*([^;]+)');

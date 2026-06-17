@@ -54,3 +54,17 @@ class UserMark(models.Model):
 
     def __str__(self):
         return f'{self.label} ({self.site_id})'
+
+
+class Pledge(models.Model):
+    site = models.ForeignKey(Site, on_delete=models.CASCADE, related_name='pledges')
+    user = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)
+    name = models.CharField(max_length=128)
+    action = models.CharField(max_length=512)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.name}: {self.action[:40]}'

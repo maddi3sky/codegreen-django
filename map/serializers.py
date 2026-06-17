@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import DataPoint, Comment, UserMark
+from .models import DataPoint, Comment, UserMark, Pledge
 
 
 class DataPointSerializer(serializers.ModelSerializer):
@@ -27,3 +27,18 @@ class UserMarkSerializer(serializers.ModelSerializer):
         model = UserMark
         fields = ['id', 'lat', 'lng', 'label', 'site_id', 'created_at']
         read_only_fields = ['id', 'created_at']
+
+
+class PledgeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Pledge
+        fields = ['id', 'name', 'action', 'site_id', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+    def create(self, validated_data):
+        request = self.context['request']
+        if request.user.is_authenticated:
+            validated_data['user'] = request.user
+            if not validated_data.get('name'):
+                validated_data['name'] = request.user.get_full_name() or request.user.email
+        return super().create(validated_data)

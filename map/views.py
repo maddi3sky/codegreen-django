@@ -4,8 +4,8 @@ from django.http import JsonResponse
 from rest_framework import generics, permissions
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-from .models import DataPoint, Comment, UserMark, Site
-from .serializers import DataPointSerializer, CommentSerializer, UserMarkSerializer
+from .models import DataPoint, Comment, UserMark, Site, Pledge
+from .serializers import DataPointSerializer, CommentSerializer, UserMarkSerializer, PledgeSerializer
 
 
 def index(request):
@@ -73,6 +73,22 @@ class UserMarkList(generics.ListCreateAPIView):
         user = self.request.user if self.request.user.is_authenticated else None
         session_key = self.request.session.session_key or ''
         serializer.save(user=user, session_key=session_key)
+
+
+# ── Pledges ────────────────────────────────────────────────────────────────────
+
+class PledgeList(generics.ListCreateAPIView):
+    serializer_class = PledgeSerializer
+    permission_classes = [permissions.AllowAny]
+
+    def get_queryset(self):
+        site_id = self.request.query_params.get('site', 'wilmington')
+        return Pledge.objects.filter(site_id=site_id)
+
+    def perform_create(self, serializer):
+        site_id = self.request.data.get('site_id', 'wilmington')
+        user = self.request.user if self.request.user.is_authenticated else None
+        serializer.save(site_id=site_id, user=user)
 
 
 # ── Auth Status ────────────────────────────────────────────────────────────────
