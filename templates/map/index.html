@@ -1164,7 +1164,7 @@ const SITES=[
     footer:'NASA/USGS Sentinel-2 · Google Earth Engine · Lozova, Strășeni · Code Green YSA 2026',
     presenter:'YSA STEM Exchange visit site — Lozova village, Strășeni raion. Predominantly farmland and forest — green scores reflect agricultural cycles, not urban development.',
     center:[47.134,28.384], zoom:13, minZoom:12,
-    cloudYears:[2020],
+    localColorScale:true, cloudYears:[2020],
     bounds:{minLat:47.08,maxLat:47.18,minLng:28.31,maxLng:28.45},
     satBounds:[[47.08,28.31],[47.18,28.45]],
     satPrefix:'/static/satellite_images/satellite_lozova_',
@@ -1329,7 +1329,7 @@ function getColorLocal(n, fullScale){
   // Cap at yellow — for rural/farmland sites where "low" is still 90%+ green
   if(t>=0.70)return currentColors.vhigh;
   if(t>=0.35)return currentColors.high;
-  return currentColors.mid;
+  return '#7dcea0'; // light green — village/lower-density, never yellow/orange
 }
 function getLabel(n){
   if(n>=0.85)return{emoji:'🌳',text:'Dense Vegetation / Forest'};
