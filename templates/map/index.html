@@ -1502,9 +1502,9 @@ async function applySite(idx){
   // Force circle rebuild now that data is available
   persistentSiteId = null;
   rebuildStats(site);
-  if(chartOpen) rebuildChart(site);
   const idx2=parseInt(document.getElementById('yr-slider').value);
   renderYear(idx2);
+  if(chartOpen) setTimeout(()=>rebuildChart(site),50);
 }
 
 // Per-site computed data cache
