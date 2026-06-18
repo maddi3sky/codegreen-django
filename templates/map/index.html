@@ -1445,9 +1445,12 @@ async function applySite(idx){
     labelMarkers.push(m);
   });
 
-  // Draw landmarks — always use hardcoded coordinates, ignore localStorage
   site.landmarks.forEach((lm)=>{
-    const m=L.marker([lm.lat,lm.lng],{icon:lmIcon(lm.emoji,lm.color),draggable:false}).addTo(landmarkLayer);
+    const lmKey=`lm_${site.id}_${lm.emoji.replace(/\s+/g,'_')}`;
+    const saved=localStorage.getItem(lmKey);
+    const pos=saved?JSON.parse(saved):[lm.lat,lm.lng];
+    const m=L.marker(pos,{icon:lmIcon(lm.emoji,lm.color),draggable:true}).addTo(landmarkLayer);
+    m.on('dragend',()=>{const ll=m.getLatLng();localStorage.setItem(lmKey,JSON.stringify([ll.lat,ll.lng]));console.log(lm.emoji,ll.lat,ll.lng);});
     m.bindPopup(`<div class="pp" style="color:${lm.color}">${lm.emoji}</div><div style="font-size:0.73rem;color:#a0c9b8;margin-bottom:4px">${lm.note}</div>`);
   });
 
