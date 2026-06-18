@@ -16,7 +16,21 @@
     const _djangoAuth = {{ is_authenticated|lower }};
     const _djangoName = "{{ display_name|default:''|escapejs }}";
 
-    window.fbSignIn  = () => { window.location = '/accounts/google/login/?next=/'; };
+    window.fbSignIn = () => {
+      const f = document.createElement('form');
+      f.method = 'POST';
+      f.action = '/accounts/google/login/';
+      const csrf = document.createElement('input');
+      csrf.type = 'hidden';
+      csrf.name = 'csrfmiddlewaretoken';
+      csrf.value = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '';
+      f.appendChild(csrf);
+      const next = document.createElement('input');
+      next.type = 'hidden'; next.name = 'next'; next.value = '/';
+      f.appendChild(next);
+      document.body.appendChild(f);
+      f.submit();
+    };
     window.fbSignOut = () => {
       fetch('/accounts/logout/', {method:'POST', headers:{'X-CSRFToken':getCookie('csrftoken')}})
         .then(()=>window.location.reload());
