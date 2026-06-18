@@ -1311,10 +1311,15 @@ function getColor(n){
 // so spatial variation shows even when all absolute values are high (e.g. Lozova)
 let _localMin=0, _localMax=1;
 function computeLocalScale(site, yr){
-  const data=SITE_DATA[site.id]&&SITE_DATA[site.id][yr];
-  if(!data||!data.length){_localMin=0;_localMax=1;return;}
-  _localMin=data.reduce((a,p)=>Math.min(a,p.ndvi),1);
-  _localMax=data.reduce((a,p)=>Math.max(a,p.ndvi),0);
+  // Use all real years combined so scale is consistent across the timeline
+  const realYrs=[2019,2020,2021,2022,2023,2024,2025,2026];
+  const allPts=realYrs.flatMap(y=>(SITE_DATA[site.id]&&SITE_DATA[site.id][y])||[]);
+  const data=allPts.length?allPts:(SITE_DATA[site.id]&&SITE_DATA[site.id][yr])||[];
+  if(!data.length){_localMin=0;_localMax=1;return;}
+  // Use 5th/95th percentile to avoid outliers (cloud artifacts etc) distorting the scale
+  const vals=data.map(p=>p.ndvi).sort((a,b)=>a-b);
+  _localMin=vals[Math.floor(vals.length*0.05)];
+  _localMax=vals[Math.floor(vals.length*0.95)];
   if(_localMax===_localMin)_localMax=_localMin+0.01;
 }
 function getColorLocal(n, fullScale){
