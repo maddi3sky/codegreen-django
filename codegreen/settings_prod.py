@@ -1,7 +1,7 @@
 import os
 from .settings import *
 
-DEBUG = False
+DEBUG = True  # TEMP: to diagnose OAuth 500
 SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
 
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',') + ['healthcheck.railway.app', '.up.railway.app']
