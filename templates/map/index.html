@@ -1396,6 +1396,7 @@ map.on('click',function(e){
 // ══════════════════════════════════════════════
 function cycleSite(dir){
   currentSiteIdx=(currentSiteIdx+dir+SITES.length)%SITES.length;
+  document.getElementById('yr-slider').value=0; // reset to 2019
   applySite(currentSiteIdx);
 }
 
