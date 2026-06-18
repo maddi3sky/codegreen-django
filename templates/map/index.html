@@ -550,7 +550,7 @@
               <div id="policy-controls" style="display:none;margin-top:6px;">
                 <div class="opacity-row">
                   <label>Min green %</label>
-                  <input type="range" id="policy-slider" min="0" max="100" value="30" oninput="updatePolicyThreshold(this.value)"/>
+                  <input type="range" id="policy-slider" min="0" max="100" value="55" oninput="updatePolicyThreshold(this.value)"/>
                   <span class="opacity-val" id="policy-val">30%</span>
                 </div>
                 <div id="policy-result" style="margin-top:6px;padding:7px 10px;background:rgba(231,76,60,0.12);border:1px solid rgba(231,76,60,0.3);border-radius:6px;font-size:0.7rem;color:#e74c3c;display:none;"></div>
@@ -1260,7 +1260,7 @@ const COLORS_CB={vhigh:'#005073',high:'#0097b2',mid:'#f0e442',low:'#e69f00',vlow
 let currentColors={...COLORS_NORMAL};
 let cbMode=false, dotsVisible=true, dotOpacity=0.72;
 let relativeMode=false;
-let policyMode=false, policyThreshold=0.30;
+let policyMode=false, policyThreshold=0.55;
 let activeYr=2019;
 
 // Diverging scale for relative change: loss=red, no change=grey, gain=green
