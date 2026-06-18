@@ -1817,7 +1817,7 @@ function buildCircles(yr){
         fillColor:belowPolicy?'#e74c3c':color,
         color:belowPolicy?'#fff':'transparent',
         weight:belowPolicy?2:0,
-        fillOpacity:belowPolicy?0.95:dotOpacity
+        fillOpacity:policyMode?(belowPolicy?0.95:0.2):dotOpacity
       }).addTo(circleLayer);
 
       persistentCircles.push({c, byYear:entry.byYear, region, hood});
@@ -1837,7 +1837,9 @@ function buildCircles(yr){
           <div class="sub">📍 ${site.regionLabel} ${region} · ${hood}</div>
           <div class="pct-bar"><div class="pct-fill" style="width:${pct}%;background:${curColor}"></div></div>
           <div style="font-size:0.68rem;color:#6a9a88">Green: <strong style="color:${curColor}">${pct}%</strong>${relativeMode?` · vs 2019: <strong style="color:${curColor}">${deltaTxt}</strong>`:` · Urban: <strong style="color:#e74c3c">${100-pct}%</strong>`}</div>`;
-        c.setStyle({fillOpacity:1,color:'#fff',weight:1.5});
+        const hoverNdvi=entry.byYear[activeYr]??0.5;
+        const isBelow=policyMode&&hoverNdvi<policyThreshold;
+        c.setStyle({fillOpacity:isBelow?0.95:policyMode?0.5:1,color:'#fff',weight:1.5});
       });
       c.on('mouseout',()=>{
         document.getElementById('hover-box').innerHTML='<span style="color:#3a5a4a">Hover any circle to see details</span>';
@@ -1849,7 +1851,7 @@ function buildCircles(yr){
         const restoredColor=relativeMode?getColorRelative(curNdvi2-base2019):(site2.localColorScale?getColorLocal(curNdvi2,site2.localColorFull):getColor(curNdvi2));
         c.setStyle({
           fillColor:belowP?'#e74c3c':restoredColor,
-          fillOpacity:belowP?0.95:dotOpacity,
+          fillOpacity:policyMode?(belowP?0.95:0.2):dotOpacity,
           color:belowP?'#fff':'transparent',
           weight:belowP?2:0
         });
@@ -1890,7 +1892,7 @@ function buildCircles(yr){
     if(belowPolicy)belowCount++;
     c.setStyle({
       fillColor:belowPolicy?'#e74c3c':color,
-      fillOpacity:belowPolicy?0.95:dotOpacity,
+      fillOpacity:policyMode?(belowPolicy?0.95:0.2):dotOpacity,
       color:'transparent',
       weight:0
     });
