@@ -1056,7 +1056,7 @@
     <p style="color:#6a9a88;font-size:0.72rem;margin:0 0 16px;">Share this map with your school or community</p>
     <div id="share-url-box" style="background:#0a1f12;border:1px solid #1a4a2e;border-radius:8px;padding:8px 12px;font-size:0.68rem;color:#27ae60;word-break:break-all;margin-bottom:14px;"></div>
     <div style="display:flex;gap:10px;justify-content:center;margin-bottom:18px;">
-      <button onclick="doShareCopy()" style="background:#27ae60;border:none;border-radius:8px;color:white;padding:10px 20px;font-size:0.8rem;font-weight:bold;cursor:pointer;">📋 Copy Link</button>
+      <button id="copy-link-btn" onclick="doShareCopy()" style="background:#27ae60;border:none;border-radius:8px;color:white;padding:10px 20px;font-size:0.8rem;font-weight:bold;cursor:pointer;">📋 Copy Link</button>
       <button onclick="doShareQR()" style="background:#1a2e22;border:1px solid #27ae60;border-radius:8px;color:#e0f0eb;padding:10px 20px;font-size:0.8rem;cursor:pointer;">📷 QR Code</button>
     </div>
     <div id="qr-container" style="display:none;margin-top:4px;">
@@ -2603,7 +2603,9 @@ function shareLink(){
 }
 function doShareCopy(){
   const url=window.location.href;
-  if(navigator.clipboard)navigator.clipboard.writeText(url).then(()=>showShareToast('✅ Link copied!')).catch(()=>fallbackCopy(url));
+  const btn=document.getElementById('copy-link-btn');
+  const confirm=()=>{btn.textContent='✅ Copied!';btn.style.background='#1a6b3a';setTimeout(()=>{btn.textContent='📋 Copy Link';btn.style.background='#27ae60';},2000);};
+  if(navigator.clipboard)navigator.clipboard.writeText(url).then(confirm).catch(()=>fallbackCopy(url));
   else fallbackCopy(url);
 }
 function doShareQR(){
