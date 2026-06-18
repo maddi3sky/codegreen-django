@@ -1318,11 +1318,11 @@ function computeLocalScale(site, yr){
 }
 function getColorLocal(n){
   const t=(_localMax>_localMin)?(n-_localMin)/(_localMax-_localMin):0.5;
-  if(t>=0.80)return currentColors.vhigh;
-  if(t>=0.55)return currentColors.high;
-  if(t>=0.35)return currentColors.mid;
-  if(t>=0.15)return currentColors.low;
-  return currentColors.vlow;
+  // Cap at yellow — lowest point is light green, never orange/red
+  // since even low-scoring Lozova points are 90%+ green in absolute terms
+  if(t>=0.70)return currentColors.vhigh;
+  if(t>=0.35)return currentColors.high;
+  return currentColors.mid; // yellow = lowest tier, no orange/red
 }
 function getLabel(n){
   if(n>=0.85)return{emoji:'🌳',text:'Dense Vegetation / Forest'};
