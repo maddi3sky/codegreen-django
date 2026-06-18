@@ -696,9 +696,9 @@
 </footer>
 
 <!-- About modal -->
-<div id="about-modal" onclick="if(event.target===this)this.classList.remove('show')" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:10010;align-items:center;justify-content:center;">
+<div id="about-modal" onclick="if(event.target===this)this.style.display='none'" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:10010;align-items:center;justify-content:center;">
   <div style="background:#162e22;border:2px solid #27ae60;border-radius:14px;padding:28px 28px;max-width:480px;width:92%;position:relative;max-height:90vh;overflow-y:auto;">
-    <button onclick="document.getElementById('about-modal').classList.remove('show')" style="position:absolute;top:14px;right:16px;background:none;border:none;color:#6a9a88;font-size:1.2rem;cursor:pointer;">✕</button>
+    <button onclick="document.getElementById('about-modal').style.display='none'" style="position:absolute;top:14px;right:16px;background:none;border:none;color:#6a9a88;font-size:1.2rem;cursor:pointer;">✕</button>
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
       <div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#27ae60,#1a7a2e);display:flex;align-items:center;justify-content:center;font-size:1.4rem;flex-shrink:0;">🌿</div>
       <div>
