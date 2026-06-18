@@ -1137,7 +1137,6 @@ const SITES=[
     landmarks:[
       {lat:47.0252,lng:28.8317,emoji:'🌿 Stefan cel Mare Park',note:'Stefan cel Mare Central Park — oldest park in Moldova (1818), heart of Chisinau',color:'#27ae60'},
       {lat:47.0264,lng:28.8264,emoji:'🏛 Parliament of Moldova',note:'Parliament Palace — Piața Marii Adunări Naționale, civic center of Chisinau',color:'#9b59b6'},
-      {lat:47.0158,lng:28.8206,emoji:'🌊 Valea Morilor',note:'Valea Morilor Park — 114 hectares, major lake park in Buiucani sector',color:'#27ae60'},
       {lat:47.0182,lng:28.8245,emoji:'🎓 Moldova State Univ.',note:'Moldova State University — main campus, Alexei Mateevici Street',color:'#3498db'},
       {lat:46.9277,lng:28.9310,emoji:'✈️ Chisinau Airport',note:'Chisinau International Airport (KIV/LUKK)',color:'#3498db'},
     ],
@@ -1436,17 +1435,13 @@ async function applySite(idx){
     labelMarkers.push(m);
   });
 
-  // Draw landmarks — draggable, positions saved to localStorage
+  // Draw landmarks — fixed positions (localStorage overrides default coords if set)
   const lmKey = k => `lm_${site.id}_${k}`;
   site.landmarks.forEach((lm,i)=>{
     const saved = localStorage.getItem(lmKey(i));
     const pos = saved ? JSON.parse(saved) : [lm.lat,lm.lng];
-    const m=L.marker(pos,{icon:lmIcon(lm.emoji,lm.color),draggable:true}).addTo(landmarkLayer);
-    m.bindPopup(`<div class="pp" style="color:${lm.color}">${lm.emoji}</div><div style="font-size:0.73rem;color:#a0c9b8;margin-bottom:4px">${lm.note}</div><div style="font-size:0.62rem;color:#3a5a4a;margin-top:4px">Drag to reposition</div>`);
-    m.on('dragend',()=>{
-      const ll=m.getLatLng();
-      localStorage.setItem(lmKey(i),JSON.stringify([ll.lat,ll.lng]));
-    });
+    const m=L.marker(pos,{icon:lmIcon(lm.emoji,lm.color),draggable:false}).addTo(landmarkLayer);
+    m.bindPopup(`<div class="pp" style="color:${lm.color}">${lm.emoji}</div><div style="font-size:0.73rem;color:#a0c9b8;margin-bottom:4px">${lm.note}</div>`);
   });
 
   // Fade circles out, fly, fade back in
