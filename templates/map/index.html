@@ -1395,7 +1395,7 @@ async function applySite(idx){
   labelMarkers=[];
 
   // Draw study area boxes using satBounds + one-circle-radius pad so border wraps dots
-  const PAD=0.009;
+  const PAD=0.016;
   site.studyBoxes.forEach(box=>{
     const sb=site.satBounds||[[box.bounds.minLat,box.bounds.minLng],[box.bounds.maxLat,box.bounds.maxLng]];
     const r=L.rectangle([
@@ -1417,10 +1417,17 @@ async function applySite(idx){
     labelMarkers.push(m);
   });
 
-  // Draw landmarks
-  site.landmarks.forEach(lm=>{
-    const m=L.marker([lm.lat,lm.lng],{icon:lmIcon(lm.emoji,lm.color),draggable:false}).addTo(landmarkLayer);
-    m.bindPopup(`<div class="pp" style="color:${lm.color}">${lm.emoji}</div><div style="font-size:0.73rem;color:#a0c9b8;margin-bottom:4px">${lm.note}</div>`);
+  // Draw landmarks — draggable, positions saved to localStorage
+  const lmKey = k => `lm_${site.id}_${k}`;
+  site.landmarks.forEach((lm,i)=>{
+    const saved = localStorage.getItem(lmKey(i));
+    const pos = saved ? JSON.parse(saved) : [lm.lat,lm.lng];
+    const m=L.marker(pos,{icon:lmIcon(lm.emoji,lm.color),draggable:true}).addTo(landmarkLayer);
+    m.bindPopup(`<div class="pp" style="color:${lm.color}">${lm.emoji}</div><div style="font-size:0.73rem;color:#a0c9b8;margin-bottom:4px">${lm.note}</div><div style="font-size:0.62rem;color:#3a5a4a;margin-top:4px">Drag to reposition</div>`);
+    m.on('dragend',()=>{
+      const ll=m.getLatLng();
+      localStorage.setItem(lmKey(i),JSON.stringify([ll.lat,ll.lng]));
+    });
   });
 
   // Fade circles out, fly, fade back in
