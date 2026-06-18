@@ -1,7 +1,7 @@
 import os
 from .settings import *
 
-DEBUG = True  # TEMP: to diagnose OAuth 500
+DEBUG = False
 SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
 
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',') + ['healthcheck.railway.app', '.up.railway.app']
@@ -35,8 +35,8 @@ CSRF_COOKIE_SAMESITE = 'None'
 
 # Google OAuth — injected via env vars so credentials aren't in code
 SOCIALACCOUNT_PROVIDERS['google']['APP'] = {
-    'client_id': os.environ.get('GOOGLE_CLIENT_ID', ''),
-    'secret': os.environ.get('GOOGLE_CLIENT_SECRET', ''),
+    'client_id': os.environ.get('GOOGLE_CLIENT_ID', '').strip(),
+    'secret': os.environ.get('GOOGLE_CLIENT_SECRET', '').strip(),
     'key': '',
 }
 
