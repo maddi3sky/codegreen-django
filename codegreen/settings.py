@@ -5,6 +5,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-change-this-in-production'
 DEBUG = True
 ALLOWED_HOSTS = ['*']
+CSRF_TRUSTED_ORIGINS = [
+    'https://codegreenspace.up.railway.app',
+    'http://localhost:8080',
+    'http://127.0.0.1:8000',
+]
 
 INSTALLED_APPS = [
     'django.contrib.admin',
