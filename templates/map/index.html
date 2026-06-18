@@ -1740,8 +1740,9 @@ function buildCircles(yr){
       SITE_STATS[site.id][2035]={score:avg35.toFixed(2),greenPct:gp35,greyPct:100-gp35,count:predCount,predicted:true};
     }
 
-    const colorYrInit=(yr===2026)?'proj2026':yr; // 2026 — use regression projection per point
-    if(site.localColorScale)computeLocalScale(site,colorYrInit===yr?yr:2025);
+    // noPrediction sites: show 2025 real data on predicted years (flat baseline = same as 2025)
+    const colorYrInit=(site.noPrediction&&yr>2026)?2025:(yr===2026)?'proj2026':yr;
+    if(site.localColorScale)computeLocalScale(site,(colorYrInit==='proj2026'||colorYrInit>2026)?2025:colorYrInit);
     const _colorFn=(!relativeMode&&site.localColorScale)?(n=>getColorLocal(n,site.localColorFull)):getColor;
     let belowCount=0;
     Object.values(ndviMap).forEach(entry=>{
@@ -1807,8 +1808,8 @@ function buildCircles(yr){
   // For partial-season 2026, color dots by 2025 values (last full season)
   // so the spatial pattern isn't distorted by early-spring undercount.
   // In relative mode, 2026 uses Apr–Jun data (different window than Jul–Aug baseline) — use 2025 proxy
-  const colorYr=(yr===2026)?'proj2026':yr; // 2026 — use regression projection per point
-  if(site.localColorScale)computeLocalScale(site,colorYr===yr?yr:2025);
+  const colorYr=(site.noPrediction&&yr>2026)?2025:(yr===2026)?'proj2026':yr;
+  if(site.localColorScale)computeLocalScale(site,(colorYr==='proj2026'||colorYr>2026)?2025:colorYr);
   const _colorFn2=(!relativeMode&&site.localColorScale)?(n=>getColorLocal(n,site.localColorFull)):getColor;
   let belowCount=0;
   persistentCircles.forEach(({c,byYear})=>{
