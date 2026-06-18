@@ -1164,6 +1164,7 @@ const SITES=[
     footer:'NASA/USGS Sentinel-2 · Google Earth Engine · Lozova, Strășeni · Code Green YSA 2026',
     presenter:'YSA STEM Exchange visit site — Lozova village, Strășeni raion. Predominantly farmland and forest — green scores reflect agricultural cycles, not urban development.',
     center:[47.134,28.384], zoom:13, minZoom:12,
+    localColorScale:true,
     bounds:{minLat:47.08,maxLat:47.18,minLng:28.31,maxLng:28.45},
     satBounds:[[47.08,28.31],[47.18,28.45]],
     satPrefix:'/static/satellite_images/satellite_lozova_',
@@ -1304,6 +1305,24 @@ function getColor(n){
   if(n>=0.70)return currentColors.high;
   if(n>=0.55)return currentColors.mid;
   if(n>=0.40)return currentColors.low;
+  return currentColors.vlow;
+}
+// Site-relative color scale: stretches the actual min-max range across the full palette
+// so spatial variation shows even when all absolute values are high (e.g. Lozova)
+let _localMin=0, _localMax=1;
+function computeLocalScale(site, yr){
+  const data=SITE_DATA[site.id]&&SITE_DATA[site.id][yr];
+  if(!data||!data.length){_localMin=0;_localMax=1;return;}
+  _localMin=data.reduce((a,p)=>Math.min(a,p.ndvi),1);
+  _localMax=data.reduce((a,p)=>Math.max(a,p.ndvi),0);
+  if(_localMax===_localMin)_localMax=_localMin+0.01;
+}
+function getColorLocal(n){
+  const t=(_localMax>_localMin)?(n-_localMin)/(_localMax-_localMin):0.5;
+  if(t>=0.80)return currentColors.vhigh;
+  if(t>=0.55)return currentColors.high;
+  if(t>=0.35)return currentColors.mid;
+  if(t>=0.15)return currentColors.low;
   return currentColors.vlow;
 }
 function getLabel(n){
@@ -1702,11 +1721,13 @@ function buildCircles(yr){
     }
 
     const colorYrInit=(yr===2026)?'proj2026':yr; // 2026 — use regression projection per point
+    if(site.localColorScale)computeLocalScale(site,colorYrInit===yr?yr:2025);
+    const _colorFn=(!relativeMode&&site.localColorScale)?getColorLocal:getColor;
     let belowCount=0;
     Object.values(ndviMap).forEach(entry=>{
       const ndvi=entry.byYear[colorYrInit]??entry.byYear[yr]??entry.byYear[baseYr]??0.5;
       const base2019=entry.byYear[2019]??ndvi;
-      const color=relativeMode?getColorRelative(ndvi-base2019):getColor(ndvi);
+      const color=relativeMode?getColorRelative(ndvi-base2019):_colorFn(ndvi);
       const belowPolicy=policyMode&&ndvi<policyThreshold;
       if(belowPolicy)belowCount++;
       const region=site.getRegion(entry.lat,entry.lng);
@@ -1767,11 +1788,13 @@ function buildCircles(yr){
   // so the spatial pattern isn't distorted by early-spring undercount.
   // In relative mode, 2026 uses Apr–Jun data (different window than Jul–Aug baseline) — use 2025 proxy
   const colorYr=(yr===2026)?'proj2026':yr; // 2026 — use regression projection per point
+  if(site.localColorScale)computeLocalScale(site,colorYr===yr?yr:2025);
+  const _colorFn2=(!relativeMode&&site.localColorScale)?getColorLocal:getColor;
   let belowCount=0;
   persistentCircles.forEach(({c,byYear})=>{
     const ndvi=byYear[colorYr]??byYear[yr]??0.5;
     const base2019=byYear[2019]??ndvi;
-    const color=relativeMode?getColorRelative(ndvi-base2019):getColor(ndvi);
+    const color=relativeMode?getColorRelative(ndvi-base2019):_colorFn2(ndvi);
     const belowPolicy=policyMode&&ndvi<policyThreshold;
     if(belowPolicy)belowCount++;
     c.setStyle({
