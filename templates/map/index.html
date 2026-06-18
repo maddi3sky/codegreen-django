@@ -159,6 +159,7 @@
     .year-num{font-size:2.8rem;font-weight:800;color:#2ecc71;line-height:1;text-shadow:0 0 30px rgba(46,204,113,0.3);}
     .year-sub{font-size:0.68rem;color:#6a9a88;margin-top:2px;}
     input[type=range]{width:100%;-webkit-appearance:none;height:3px;border-radius:2px;background:linear-gradient(to right,#2ecc71 var(--pct,0%),#1a2e22 var(--pct,0%));outline:none;cursor:pointer;}
+    #policy-slider{background:#1a2e22;}
     input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#2ecc71;border:2px solid #0d1612;cursor:pointer;box-shadow:0 0 8px rgba(46,204,113,0.5);}
     .year-labels{display:flex;justify-content:space-between;font-size:0.55rem;color:#3a5a4a;margin-top:5px;}
     .year-note{background:#1a2e22;border-left:3px solid #27ae60;border-radius:0 6px 6px 0;padding:8px 10px;font-size:0.68rem;color:#a0c9b8;line-height:1.5;margin-top:10px;}
@@ -550,8 +551,8 @@
               <div id="policy-controls" style="display:none;margin-top:6px;">
                 <div class="opacity-row">
                   <label>Min green %</label>
-                  <input type="range" id="policy-slider" min="0" max="100" value="55" oninput="updatePolicyThreshold(this.value)"/>
-                  <span class="opacity-val" id="policy-val">30%</span>
+                  <input type="range" id="policy-slider" min="0" max="100" value="0" oninput="updatePolicyThreshold(this.value)"/>
+                  <span class="opacity-val" id="policy-val">0%</span>
                 </div>
                 <div id="policy-result" style="margin-top:6px;padding:7px 10px;background:rgba(231,76,60,0.12);border:1px solid rgba(231,76,60,0.3);border-radius:6px;font-size:0.7rem;color:#e74c3c;display:none;"></div>
               </div>
@@ -1260,7 +1261,7 @@ const COLORS_CB={vhigh:'#005073',high:'#0097b2',mid:'#f0e442',low:'#e69f00',vlow
 let currentColors={...COLORS_NORMAL};
 let cbMode=false, dotsVisible=true, dotOpacity=0.72;
 let relativeMode=false;
-let policyMode=false, policyThreshold=0.55;
+let policyMode=false, policyThreshold=0.0;
 let activeYr=2019;
 
 // Diverging scale for relative change: loss=red, no change=grey, gain=green
