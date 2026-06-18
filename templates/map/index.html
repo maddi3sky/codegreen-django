@@ -1189,8 +1189,9 @@ const SITES=[
       2026:'<strong>2026 projected — ~97% green.</strong> Dot colors show what the 2019–2025 trend <em>predicts</em> for each location in Lozova. Full satellite re-export after Oct 2026 will replace this with real data.'
     },
     hypothesis:'<strong>🔬 Urban vs. Rural Green Space</strong>Lozova is the rural control site. While Chisinau tracks the COVID development acceleration hypothesis, Lozova shows what Moldova looks like without urban construction pressure. The contrast between these two sites is itself a finding.<br><br><strong>Why are scores so high?</strong> The study area covers the full village boundary including surrounding agricultural fields and forest — farmland and trees vastly outnumber built surfaces. The village center does score lower (some points reach as low as 77%), but those are averaged across hundreds of green field samples. High scores here mean <em>rural</em>, not the absence of a village.',
-    predictText:'You visited Lozova as part of the YSA STEM exchange. What did you observe on the ground that the satellite can\'t capture?',
-    predictBullets:['How did the village compare to what the map showed?','What green space stood out on the ground?','How does rural Lozova compare to urban Chisinau?','What would change if development pressure reached here?'],
+    noPrediction:true,
+    predictText:'Lozova\'s scores reflect agricultural cycles, not development trends — linear forecasting doesn\'t apply here. The real question: how long until urban pressure from Chisinau reaches villages like Lozova?',
+    predictBullets:['Rural Moldova has been stable for decades — but Chisinau is expanding','What would change if a road or industrial site came to Lozova?','How does this rural baseline compare to Chisinau\'s trajectory?','Lozova is the control — Chisinau is the experiment'],
     legendBoxes:`<div class="leg-row"><div style="width:16px;height:16px;border:2px dashed #f39c12;border-radius:2px;flex-shrink:0"></div><div><div class="leg-main">Lozova Study Area</div><div class="leg-sub">Lozova village, Strășeni raion — farmland &amp; forest</div></div></div>`,
   }
 ];
@@ -1631,13 +1632,22 @@ function renderYear(idx){
   // Prediction discussion card shows on 2026 (last real year) and 2030/2035 (forecast years)
   document.getElementById('predict-card').classList.add('show');
   if(idx>=7){
-    if(isPredicted){
+    if(isPredicted&&site.noPrediction){
+      document.getElementById('predict-text').textContent=site.predictText;
+      document.getElementById('predict-bullets').innerHTML=site.predictBullets.map(b=>`<li>${b}</li>`).join('');
+    } else if(isPredicted){
       document.getElementById('predict-text').textContent=`This is the model's forecast for ${yr} — based on linear regression of each dot's 2019–2026 trend. What do you think? Will the real ${yr} match this?`;
       document.getElementById('predict-bullets').innerHTML=site.predictBullets.map(b=>`<li>${b}</li>`).join('');
     } else {
       document.getElementById('predict-text').textContent=site.predictText;
       document.getElementById('predict-bullets').innerHTML=site.predictBullets.map(b=>`<li>${b}</li>`).join('');
     }
+  }
+  // Override predicted badge label for no-prediction sites
+  if(isPredicted&&site.noPrediction){
+    document.getElementById('predict-badge').textContent='🌿 Stable Baseline';
+  } else if(isPredicted){
+    document.getElementById('predict-badge').textContent='🔮 Predicted';
   }
 
   const tb=document.getElementById('trend-badge');
@@ -1698,10 +1708,16 @@ function buildCircles(yr){
         ndviMap[k].byYear[y]=p.ndvi;
       });
     });
-    // Compute linear regression predictions for 2030 and 2035 per dot
+    // Compute predictions — for noPrediction sites use flat 2025 value (stable rural baseline)
     let sumPred2030=0, sumPred2035=0, predCount=0;
     Object.values(ndviMap).forEach(entry=>{
-      const {p2026:proj26,p2030,p2035}=computePredictions(entry.byYear);
+      let proj26,p2030,p2035;
+      if(site.noPrediction){
+        const flat=entry.byYear[2025]??entry.byYear[2026]??entry.byYear[2024]??0.95;
+        proj26=flat; p2030=flat; p2035=flat;
+      } else {
+        ({p2026:proj26,p2030,p2035}=computePredictions(entry.byYear));
+      }
       entry.byYear['proj2026']=proj26; entry.byYear[2030]=p2030; entry.byYear[2035]=p2035;
       sumPred2030+=p2030; sumPred2035+=p2035; predCount++;
     });
