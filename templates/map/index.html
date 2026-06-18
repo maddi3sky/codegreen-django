@@ -1118,6 +1118,7 @@ const SITES=[
     footer:'NASA/USGS Sentinel-2 · Google Earth Engine · Chisinau Moldova · Code Green YSA 2026',
     presenter:'YSA Global STEM Ambassadors NC–Moldova Exchange (2026). Same methodology as Code Green Wilmington — direct international comparison.',
     center:[47.0,28.875], zoom:12, minZoom:11,
+    localColorScale:true, localColorFull:true,
     bounds:{minLat:46.91,maxLat:47.07,minLng:28.75,maxLng:29.00},
     satBounds:[[46.91,28.75],[47.07,29.00]],
     satPrefix:'/static/satellite_images/satellite_chisinau_',
@@ -1317,13 +1318,20 @@ function computeLocalScale(site, yr){
   _localMax=data.reduce((a,p)=>Math.max(a,p.ndvi),0);
   if(_localMax===_localMin)_localMax=_localMin+0.01;
 }
-function getColorLocal(n){
+function getColorLocal(n, fullScale){
   const t=(_localMax>_localMin)?(n-_localMin)/(_localMax-_localMin):0.5;
-  // Cap at yellow — lowest point is light green, never orange/red
-  // since even low-scoring Lozova points are 90%+ green in absolute terms
+  if(fullScale){
+    // Full 5-tier scale normalized to local min/max — for urban sites
+    if(t>=0.80)return currentColors.vhigh;
+    if(t>=0.60)return currentColors.high;
+    if(t>=0.40)return currentColors.mid;
+    if(t>=0.20)return currentColors.low;
+    return currentColors.vlow;
+  }
+  // Cap at yellow — for rural/farmland sites where "low" is still 90%+ green
   if(t>=0.70)return currentColors.vhigh;
   if(t>=0.35)return currentColors.high;
-  return currentColors.mid; // yellow = lowest tier, no orange/red
+  return currentColors.mid;
 }
 function getLabel(n){
   if(n>=0.85)return{emoji:'🌳',text:'Dense Vegetation / Forest'};
@@ -1734,7 +1742,7 @@ function buildCircles(yr){
 
     const colorYrInit=(yr===2026)?'proj2026':yr; // 2026 — use regression projection per point
     if(site.localColorScale)computeLocalScale(site,colorYrInit===yr?yr:2025);
-    const _colorFn=(!relativeMode&&site.localColorScale)?getColorLocal:getColor;
+    const _colorFn=(!relativeMode&&site.localColorScale)?(n=>getColorLocal(n,site.localColorFull)):getColor;
     let belowCount=0;
     Object.values(ndviMap).forEach(entry=>{
       const ndvi=entry.byYear[colorYrInit]??entry.byYear[yr]??entry.byYear[baseYr]??0.5;
@@ -1801,7 +1809,7 @@ function buildCircles(yr){
   // In relative mode, 2026 uses Apr–Jun data (different window than Jul–Aug baseline) — use 2025 proxy
   const colorYr=(yr===2026)?'proj2026':yr; // 2026 — use regression projection per point
   if(site.localColorScale)computeLocalScale(site,colorYr===yr?yr:2025);
-  const _colorFn2=(!relativeMode&&site.localColorScale)?getColorLocal:getColor;
+  const _colorFn2=(!relativeMode&&site.localColorScale)?(n=>getColorLocal(n,site.localColorFull)):getColor;
   let belowCount=0;
   persistentCircles.forEach(({c,byYear})=>{
     const ndvi=byYear[colorYr]??byYear[yr]??0.5;
