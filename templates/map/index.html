@@ -2215,7 +2215,7 @@ function updateSigninBtn(){
   const btn=document.getElementById('signin-btn');
   if(currentUser){
     btn.textContent=`👤 ${currentUser.name}`;
-    btn.onclick=()=>{if(confirm('Sign out?')){if(window.fbSignOut)window.fbSignOut();else{currentUser=null;localStorage.removeItem('cg_user');updateSigninBtn();}}};
+    btn.onclick=()=>{if(confirm('Sign out?')){currentUser=null;localStorage.removeItem('cg_user');if(window.fbSignOut)window.fbSignOut();else updateSigninBtn();}};
   } else {btn.textContent='👤 Sign In';btn.onclick=openSignin;}
 }
 function openSignin(){
