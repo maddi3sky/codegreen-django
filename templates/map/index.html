@@ -1520,10 +1520,28 @@ function rebuildStats(site){
     // Load real satellite years
     YEARS_REAL.forEach(yr=>{
       const raw=site.dataObj[yr]||[];
-      const pts=raw.filter(p=>
+      let pts=raw.filter(p=>
         p.lat>=site.bounds.minLat&&p.lat<=site.bounds.maxLat&&
         p.lng>=site.bounds.minLng&&p.lng<=site.bounds.maxLng
       );
+      // For cloud-affected years: replace each dot's value with average of prev/next year
+      // to remove cloud artifacts while preserving spatial pattern
+      if((site.cloudYears||[]).includes(yr)){
+        const prevYr=YEARS_REAL[YEARS_REAL.indexOf(yr)-1];
+        const nextYr=YEARS_REAL[YEARS_REAL.indexOf(yr)+1];
+        const prevPts=prevYr?(site.dataObj[prevYr]||[]):[];
+        const nextPts=nextYr?(site.dataObj[nextYr]||[]):[];
+        const lookup=(arr)=>{const m={};arr.forEach(p=>m[Math.round(p.lat*1000)+','+Math.round(p.lng*1000)]=p.ndvi);return m;};
+        const prevMap=lookup(prevPts), nextMap=lookup(nextPts);
+        pts=pts.map(p=>{
+          const k=Math.round(p.lat*1000)+','+Math.round(p.lng*1000);
+          const pv=prevMap[k], nv=nextMap[k];
+          if(pv!==undefined&&nv!==undefined) return{...p,ndvi:(pv+nv)/2};
+          if(pv!==undefined) return{...p,ndvi:pv};
+          if(nv!==undefined) return{...p,ndvi:nv};
+          return p;
+        });
+      }
       SITE_DATA[site.id][yr]=pts;
       if(!pts.length){SITE_STATS[site.id][yr]={score:'N/A',greenPct:0,greyPct:100,count:0};return;}
       const vals=pts.map(p=>p.ndvi);
