@@ -2031,7 +2031,7 @@ function updatePolicyResult(belowCount){
     el.style.color='#e74c3c';
     el.style.borderColor='rgba(231,76,60,0.3)';
     el.style.background='rgba(231,76,60,0.08)';
-    el.innerHTML=`⚠️ <strong>${belowCount} of ${total} zones (${pct}%)</strong> are below the ${threshPct}% green policy threshold. These areas need intervention.`;
+    el.innerHTML=`⚠️ <strong>${belowCount} of ${total} zones (${pct}%)</strong> are below the ${threshPct}% green policy threshold. These areas need intervention.${threshPct===100?' <em style="font-size:0.65rem;opacity:0.7">(Remaining green dots score exactly 100% — dense forest/vegetation.)</em>':''}`;
   }
 }
 
