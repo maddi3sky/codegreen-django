@@ -1310,16 +1310,10 @@ function getColor(n){
 // Site-relative color scale: stretches the actual min-max range across the full palette
 // so spatial variation shows even when all absolute values are high (e.g. Lozova)
 let _localMin=0, _localMax=1;
-function computeLocalScale(site, yr){
-  // Use all real years combined so scale is consistent across the timeline
-  const realYrs=[2019,2020,2021,2022,2023,2024,2025,2026];
-  const allPts=realYrs.flatMap(y=>(SITE_DATA[site.id]&&SITE_DATA[site.id][y])||[]);
-  const data=allPts.length?allPts:(SITE_DATA[site.id]&&SITE_DATA[site.id][yr])||[];
-  if(!data.length){_localMin=0;_localMax=1;return;}
-  // Use 5th/95th percentile to avoid outliers (cloud artifacts etc) distorting the scale
-  const vals=data.map(p=>p.ndvi).sort((a,b)=>a-b);
-  _localMin=vals[Math.floor(vals.length*0.05)];
-  _localMax=vals[Math.floor(vals.length*0.95)];
+function computeLocalScale(site){
+  // Use pre-computed all-years 5th/95th percentile for consistent cross-year coloring
+  _localMin=siteLocalMin[site.id]??0;
+  _localMax=siteLocalMax[site.id]??1;
   if(_localMax===_localMin)_localMax=_localMin+0.01;
 }
 function getColorLocal(n, fullScale){
@@ -1490,6 +1484,20 @@ async function applySite(idx){
 // Per-site computed data cache
 const SITE_DATA={};
 const SITE_STATS={};
+// Pre-computed all-years min/max for localColorScale sites (5th/95th percentile)
+const siteLocalMin={}, siteLocalMax={};
+SITES.forEach(site=>{
+  if(!site.localColorScale)return;
+  const realYrs=[2019,2020,2021,2022,2023,2024,2025,2026];
+  // Collect all points across all years
+  const allVals=realYrs.flatMap(yr=>{
+    const raw=site.dataObj[yr]||[];
+    return raw.filter(p=>p.lat>=site.bounds.minLat&&p.lat<=site.bounds.maxLat&&p.lng>=site.bounds.minLng&&p.lng<=site.bounds.maxLng).map(p=>p.ndvi);
+  }).sort((a,b)=>a-b);
+  if(!allVals.length){siteLocalMin[site.id]=0;siteLocalMax[site.id]=1;return;}
+  siteLocalMin[site.id]=allVals[Math.floor(allVals.length*0.05)];
+  siteLocalMax[site.id]=allVals[Math.floor(allVals.length*0.95)];
+});
 
 function rebuildStats(site){
   if(!SITE_DATA[site.id]){
@@ -1506,7 +1514,9 @@ function rebuildStats(site){
       if(!pts.length){SITE_STATS[site.id][yr]={score:'N/A',greenPct:0,greyPct:100,count:0};return;}
       const vals=pts.map(p=>p.ndvi);
       const avg=vals.reduce((a,b)=>a+b,0)/vals.length;
-      const greenPct=Math.round(vals.filter(v=>v>0.70).length/vals.length*100);
+      // For localColorScale sites use relative threshold (bottom 40% of all-years range = developed)
+      // For absolute sites use 0.70 cutoff
+      const greenPct=Math.round(vals.filter(v=>site.localColorScale?v>siteLocalMax[site.id]-(siteLocalMax[site.id]-siteLocalMin[site.id])*0.40:v>0.70).length/vals.length*100);
       SITE_STATS[site.id][yr]={score:avg.toFixed(2),greenPct,greyPct:100-greenPct,count:pts.length};
     });
     // Compute 2030/2035 predictions synchronously here so the chart is correct on first render.
@@ -1522,11 +1532,12 @@ function rebuildStats(site){
     const entries=Object.values(ndviMap);
     let sum30=0,sum35=0,cnt=entries.length;
     let gp30=0,gp35=0;
+    const localThresh=site.localColorScale?(siteLocalMax[site.id]-(siteLocalMax[site.id]-siteLocalMin[site.id])*0.40):0.70;
     entries.forEach(e=>{
       const {p2026:proj26,p2030,p2035}=computePredictions(e.byYear);
       e.byYear['proj2026']=proj26; e.byYear[2030]=p2030; e.byYear[2035]=p2035;
       sum30+=p2030; sum35+=p2035;
-      if(p2030>0.70) gp30++; if(p2035>0.70) gp35++;
+      if(p2030>localThresh) gp30++; if(p2035>localThresh) gp35++;
     });
     if(cnt>0){
       const avg30=sum30/cnt, avg35=sum35/cnt;
@@ -1746,7 +1757,7 @@ function buildCircles(yr){
 
     // noPrediction sites: show 2025 real data on predicted years (flat baseline = same as 2025)
     const colorYrInit=(site.noPrediction&&yr>2026)?2025:(yr===2026)?'proj2026':yr;
-    if(site.localColorScale)computeLocalScale(site,(colorYrInit==='proj2026'||colorYrInit>2026)?2025:colorYrInit);
+    if(site.localColorScale)computeLocalScale(site);
     const _colorFn=(!relativeMode&&site.localColorScale)?(n=>getColorLocal(n,site.localColorFull)):getColor;
     let belowCount=0;
     Object.values(ndviMap).forEach(entry=>{
@@ -1813,7 +1824,7 @@ function buildCircles(yr){
   // so the spatial pattern isn't distorted by early-spring undercount.
   // In relative mode, 2026 uses Apr–Jun data (different window than Jul–Aug baseline) — use 2025 proxy
   const colorYr=(site.noPrediction&&yr>2026)?2025:(yr===2026)?'proj2026':yr;
-  if(site.localColorScale)computeLocalScale(site,(colorYr==='proj2026'||colorYr>2026)?2025:colorYr);
+  if(site.localColorScale)computeLocalScale(site);
   const _colorFn2=(!relativeMode&&site.localColorScale)?(n=>getColorLocal(n,site.localColorFull)):getColor;
   let belowCount=0;
   persistentCircles.forEach(({c,byYear})=>{
