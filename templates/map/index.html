@@ -1450,7 +1450,8 @@ async function applySite(idx){
   site.landmarks.forEach((lm)=>{
     const saved = localStorage.getItem(lmKey(lm.emoji));
     const pos = saved ? JSON.parse(saved) : [lm.lat,lm.lng];
-    const m=L.marker(pos,{icon:lmIcon(lm.emoji,lm.color),draggable:false}).addTo(landmarkLayer);
+    const m=L.marker(pos,{icon:lmIcon(lm.emoji,lm.color),draggable:true}).addTo(landmarkLayer);
+      m.on('dragend',()=>{const ll=m.getLatLng();localStorage.setItem(lmKey(lm.emoji),JSON.stringify([ll.lat,ll.lng]));});
     m.bindPopup(`<div class="pp" style="color:${lm.color}">${lm.emoji}</div><div style="font-size:0.73rem;color:#a0c9b8;margin-bottom:4px">${lm.note}</div>`);
   });
 
