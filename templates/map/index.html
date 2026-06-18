@@ -1338,6 +1338,20 @@ function getLabel(n){
   if(n>=0.40)return{emoji:'🏗',text:'Mostly Concrete / Development'};
   return{emoji:'🏙',text:'Heavy Urban — High Heat Island Risk'};
 }
+function getLabelLocal(n, fullScale){
+  // Label matches the local-normalized color tiers
+  const t=(_localMax>_localMin)?(n-_localMin)/(_localMax-_localMin):0.5;
+  if(fullScale){
+    if(t>=0.80)return{emoji:'🌳',text:'Greenest in City'};
+    if(t>=0.60)return{emoji:'🌿',text:'Above Average Green'};
+    if(t>=0.40)return{emoji:'🌾',text:'Mixed — Some Development'};
+    if(t>=0.20)return{emoji:'🏗',text:'Mostly Developed'};
+    return{emoji:'🏙',text:'Dense Urban / Least Green'};
+  }
+  if(t>=0.70)return{emoji:'🌳',text:'Greenest in Area'};
+  if(t>=0.35)return{emoji:'🌿',text:'Above Average Green'};
+  return{emoji:'🌾',text:'Below Average Green'};
+}
 
 // Build global bounds for map init (covers all sites)
 const GLOBAL_BOUNDS=L.latLngBounds([34.0,-78.2],[47.3,29.3]);
@@ -1782,8 +1796,8 @@ function buildCircles(yr){
         const curNdvi=entry.byYear[yr]??0.5;
         const cur2019=entry.byYear[2019]??curNdvi;
         const delta=curNdvi-cur2019;
-        const curColor=relativeMode?getColorRelative(delta):getColor(curNdvi);
-        const lbl=relativeMode?getLabelRelative(delta):getLabel(curNdvi);
+        const curColor=relativeMode?getColorRelative(delta):_colorFn(curNdvi);
+        const lbl=relativeMode?getLabelRelative(delta):site.localColorScale?getLabelLocal(curNdvi,site.localColorFull):getLabel(curNdvi);
         const pct=Math.round(curNdvi*100);
         const deltaPct=Math.round(delta*100);
         const deltaTxt=deltaPct>0?`+${deltaPct}%`:deltaPct===0?'no change':`${deltaPct}%`;
@@ -1801,8 +1815,8 @@ function buildCircles(yr){
       });
       c.on('click',()=>{
         const curNdvi=entry.byYear[yr]??0.5;
-        const curColor=getColor(curNdvi);
-        const lbl=getLabel(curNdvi);
+        const curColor=site.localColorScale?_colorFn(curNdvi):getColor(curNdvi);
+        const lbl=site.localColorScale?getLabelLocal(curNdvi,site.localColorFull):getLabel(curNdvi);
         c.bindPopup(
           `<div class="pp" style="color:${curColor}">${lbl.emoji} ${lbl.text}</div>
           <div style="font-size:0.72rem;color:#a0c9b8;margin-bottom:6px">📍 ${site.regionLabel} ${region} · ${hood}</div>
