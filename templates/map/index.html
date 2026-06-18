@@ -33,8 +33,10 @@
       f.submit();
     };
     window.fbSignOut = () => {
-      fetch('/accounts/logout/', {method:'POST', headers:{'X-CSRFToken':getCookie('csrftoken')}})
-        .then(()=>window.location.reload());
+      const csrf=document.querySelector('meta[name="csrf-token"]')?.content||'';
+      const f=document.createElement('form');f.method='POST';f.action='/accounts/logout/';
+      const t=document.createElement('input');t.type='hidden';t.name='csrfmiddlewaretoken';t.value=csrf;
+      f.appendChild(t);document.body.appendChild(f);f.submit();
     };
 
     // ── Comments ──────────────────────────────────────────────────────────────
@@ -2270,7 +2272,12 @@ window.addEventListener('load',()=>{
 });
 
 // ── Sign-in ──────────────────────────────
+{% if request.user.is_authenticated %}
+let currentUser={name:"{{ request.user.get_full_name|default:request.user.email }}",email:"{{ request.user.email }}",since:"{{ request.user.date_joined|date:'m/d/Y' }}"};
+localStorage.setItem('cg_user',JSON.stringify(currentUser));
+{% else %}
 let currentUser=JSON.parse(localStorage.getItem('cg_user')||'null');
+{% endif %}
 function updateSigninBtn(){
   const btn=document.getElementById('signin-btn');
   if(currentUser){
