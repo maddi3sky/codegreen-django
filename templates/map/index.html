@@ -1446,7 +1446,8 @@ async function applySite(idx){
   });
 
   site.landmarks.forEach((lm)=>{
-    const m=L.marker([lm.lat,lm.lng],{icon:lmIcon(lm.emoji,lm.color),draggable:false}).addTo(landmarkLayer);
+    const m=L.marker([lm.lat,lm.lng],{icon:lmIcon(lm.emoji,lm.color),draggable:true}).addTo(landmarkLayer);
+    m.on('dragend',()=>{const ll=m.getLatLng();console.log(lm.emoji,ll.lat,ll.lng);});
     m.bindPopup(`<div class="pp" style="color:${lm.color}">${lm.emoji}</div><div style="font-size:0.73rem;color:#a0c9b8;margin-bottom:4px">${lm.note}</div>`);
   });
 
