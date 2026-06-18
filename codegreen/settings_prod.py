@@ -1,7 +1,7 @@
 import os
 from .settings import *
 
-DEBUG = True  # TEMP
+DEBUG = False
 SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
 
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',') + ['healthcheck.railway.app', '.up.railway.app']
@@ -34,11 +34,6 @@ SESSION_COOKIE_SAMESITE = 'None'
 CSRF_COOKIE_SAMESITE = 'None'
 
 # Google OAuth — injected via env vars so credentials aren't in code
-SOCIALACCOUNT_PROVIDERS['google']['APP'] = {
-    'client_id': os.environ.get('GOOGLE_CLIENT_ID', '').strip(),
-    'secret': os.environ.get('GOOGLE_CLIENT_SECRET', '').strip(),
-    'key': '',
-}
 
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 SESSION_COOKIE_SECURE = True

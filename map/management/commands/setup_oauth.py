@@ -8,9 +8,9 @@ class Command(BaseCommand):
     help = 'Configure Google OAuth Social Application from environment variables'
 
     def handle(self, *args, **options):
-        client_id = os.environ.get('GOOGLE_CLIENT_ID', '')
-        secret = os.environ.get('GOOGLE_CLIENT_SECRET', '')
-        domain = os.environ.get('SITE_DOMAIN', '127.0.0.1:8000')
+        client_id = os.environ.get('GOOGLE_CLIENT_ID', '').strip()
+        secret = os.environ.get('GOOGLE_CLIENT_SECRET', '').strip()
+        domain = os.environ.get('SITE_DOMAIN', '127.0.0.1:8000').strip()
         name = os.environ.get('SITE_NAME', 'Code Green')
 
         if not client_id or not secret:
@@ -21,16 +21,15 @@ class Command(BaseCommand):
             id=1, defaults={'domain': domain, 'name': name}
         )
 
-        app, created = SocialApp.objects.get_or_create(
-            provider='google',
-            defaults={'name': 'Google', 'client_id': client_id, 'secret': secret}
-        )
-        if not created:
-            app.client_id = client_id
-            app.secret = secret
-            app.save()
+        # Delete all existing Google apps to avoid MultipleObjectsReturned
+        SocialApp.objects.filter(provider='google').delete()
 
-        if not app.sites.filter(id=site.id).exists():
-            app.sites.add(site)
+        app = SocialApp.objects.create(
+            provider='google',
+            name='Google',
+            client_id=client_id,
+            secret=secret,
+        )
+        app.sites.add(site)
 
         self.stdout.write(self.style.SUCCESS(f'Google OAuth configured for {domain}'))
