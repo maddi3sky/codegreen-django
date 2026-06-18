@@ -322,8 +322,9 @@
     .font-btn{background:#1a2e22;border:1px solid #3a5a4a;border-radius:6px;color:#a0c9b8;padding:5px 12px;cursor:pointer;font-size:0.75rem;transition:all 0.2s;}
     .font-btn:hover,.font-btn.active{background:#27ae60;border-color:#27ae60;color:white;}
     #settings-close{position:absolute;top:14px;right:16px;background:none;border:none;color:#6a9a88;font-size:1.2rem;cursor:pointer;}
-    body.large-text{font-size:17px;}
-    body.xl-text{font-size:20px;}
+    html.small-text{font-size:13px;}
+    html.large-text{font-size:19px;}
+    html.xl-text{font-size:22px;}
     #tts-indicator{display:none;position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:#9b59b6;color:white;padding:6px 16px;border-radius:20px;font-size:0.75rem;font-weight:bold;z-index:9997;pointer-events:none;}
     #tts-indicator.show{display:block;}
     footer{background:#0d1612;border-top:1px solid #1a2e22;padding:4px 20px;font-size:0.6rem;color:#3a5a4a;display:flex;justify-content:space-between;flex-shrink:0;}
@@ -1260,6 +1261,7 @@ let currentColors={...COLORS_NORMAL};
 let cbMode=false, dotsVisible=true, dotOpacity=0.72;
 let relativeMode=false;
 let policyMode=false, policyThreshold=0.30;
+let activeYr=2019;
 
 // Diverging scale for relative change: loss=red, no change=grey, gain=green
 function getColorRelative(delta){
@@ -1746,6 +1748,7 @@ let persistentCircles = [];   // [{circle, ndviByYear:{2019:0.7,...}, region, ho
 let persistentSiteId  = null; // which site the circles belong to
 
 function buildCircles(yr){
+  activeYr=yr;
   if(!dotsVisible){
     circleLayer.clearLayers();circleLayerB.clearLayers();
     persistentCircles=[];persistentSiteId=null;
@@ -1814,7 +1817,7 @@ function buildCircles(yr){
         fillColor:belowPolicy?'#e74c3c':color,
         color:belowPolicy?'#fff':'transparent',
         weight:belowPolicy?2:0,
-        fillOpacity:policyMode?(belowPolicy?0.95:0.2):dotOpacity
+        fillOpacity:belowPolicy?0.95:dotOpacity
       }).addTo(circleLayer);
 
       persistentCircles.push({c, byYear:entry.byYear, region, hood});
@@ -1838,7 +1841,18 @@ function buildCircles(yr){
       });
       c.on('mouseout',()=>{
         document.getElementById('hover-box').innerHTML='<span style="color:#3a5a4a">Hover any circle to see details</span>';
-        c.setStyle({fillOpacity:dotOpacity,color:'transparent',weight:0});
+        const site2=SITES[currentSiteIdx];
+        const colorYrNow=(site2.noPrediction&&activeYr>2026)?2025:(activeYr===2026)?'proj2026':activeYr;
+        const curNdvi2=entry.byYear[colorYrNow]??entry.byYear[activeYr]??0.5;
+        const belowP=policyMode&&curNdvi2<policyThreshold;
+        const base2019=entry.byYear[2019]??curNdvi2;
+        const restoredColor=relativeMode?getColorRelative(curNdvi2-base2019):(site2.localColorScale?getColorLocal(curNdvi2,site2.localColorFull):getColor(curNdvi2));
+        c.setStyle({
+          fillColor:belowP?'#e74c3c':restoredColor,
+          fillOpacity:belowP?0.95:dotOpacity,
+          color:belowP?'#fff':'transparent',
+          weight:belowP?2:0
+        });
       });
       c.on('click',()=>{
         const curNdvi=entry.byYear[yr]??0.5;
@@ -1876,7 +1890,7 @@ function buildCircles(yr){
     if(belowPolicy)belowCount++;
     c.setStyle({
       fillColor:belowPolicy?'#e74c3c':color,
-      fillOpacity:policyMode?(belowPolicy?0.95:0.2):dotOpacity,
+      fillOpacity:belowPolicy?0.95:dotOpacity,
       color:'transparent',
       weight:0
     });
@@ -2166,9 +2180,10 @@ function toggleTTS(on){ttsEnabled=on;if(!on)window.speechSynthesis.cancel();}
 function setFontSize(size,btn){
   document.querySelectorAll('.font-btn').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
-  document.body.classList.remove('large-text','xl-text');
-  if(size==='large')document.body.classList.add('large-text');
-  if(size==='xl')document.body.classList.add('large-text','xl-text');
+  document.documentElement.classList.remove('small-text','large-text','xl-text');
+  if(size==='small')document.documentElement.classList.add('small-text');
+  if(size==='large')document.documentElement.classList.add('large-text');
+  if(size==='xl')document.documentElement.classList.add('xl-text');
 }
 function setDevice(type){
   document.body.classList.remove('layout-tablet','layout-phone');
