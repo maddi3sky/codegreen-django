@@ -456,6 +456,7 @@
   </div>
   <div class="hr">
     <div class="badge" onclick="document.getElementById('help-overlay').classList.add('show')">❓ Help</div>
+    <div class="badge" onclick="document.getElementById('about-modal').classList.add('show');document.getElementById('about-modal').style.display='flex'">🌿 About</div>
     <div class="badge" onclick="shareLink()">🔗 Share</div>
     <div class="badge" onclick="document.getElementById('settings-overlay').classList.add('show')" style="font-size:1rem;padding:4px 10px;">⚙️</div>
     <button id="signin-btn" onclick="openSignin()">👤 Sign In</button>
@@ -674,34 +675,6 @@
       <div id="chart-body" style="overflow:hidden;transition:max-height 0.35s ease;max-height:300px;">
       </div><!-- /chart-body -->
     </div>
-    <!-- About the Researcher -->
-    <div class="sec" style="padding:12px 14px;">
-      <h2 onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none';this.querySelector('.ab-arrow').style.transform=this.nextElementSibling.style.display==='none'?'rotate(0deg)':'rotate(180deg)'" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;">About the Researcher <span class="ab-arrow" style="font-size:0.8rem;transition:transform 0.25s;display:inline-block;transform:rotate(180deg);">▲</span></h2>
-      <div style="margin-top:10px;">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-          <div style="width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#27ae60,#1a7a2e);display:flex;align-items:center;justify-content:center;font-size:1.2rem;flex-shrink:0;">🌿</div>
-          <div>
-            <div style="font-size:0.85rem;font-weight:700;color:#e0f0eb;">Mads</div>
-            <div style="font-size:0.65rem;color:#6a9a88;">GSA Chair · YSA Global STEM Ambassadors</div>
-          </div>
-        </div>
-        <div style="font-size:0.68rem;color:#a0c9b8;line-height:1.6;margin-bottom:10px;">
-          Code Green is a live satellite green space tracker for Wilmington, NC and Chisinau &amp; Lozova, Moldova — built as a YSA Global STEM Ambassadors research project. It uses real NASA/USGS Landsat 8 and Sentinel-2 data to track urban green coverage from 2019–2026, testing whether COVID-19 lockdowns created a post-pandemic development surge that accelerated green space loss.
-        </div>
-        <div style="font-size:0.68rem;color:#a0c9b8;line-height:1.6;margin-bottom:12px;">
-          <strong style="color:#2ecc71;">Organization:</strong> Young Scientist Academy<br>
-          <a href="https://youngscientistacademy.org" target="_blank" style="color:#2ecc71;text-decoration:none;">youngscientistacademy.org</a>
-        </div>
-        <div style="font-size:0.67rem;color:#6a9a88;margin-bottom:8px;line-height:1.5;">Questions about the research, data methodology, or this app? Reach out directly — I'm happy to share more and can provide personal contact info if needed.</div>
-        <div style="display:flex;align-items:center;gap:6px;">
-          <a href="mailto:gsachair@youngscientistacademy.org" style="flex:1;text-align:center;background:#162e22;border:1px solid #27ae60;border-radius:20px;padding:7px 14px;font-size:0.68rem;color:#2ecc71;font-weight:bold;text-decoration:none;transition:background 0.2s;" onmouseover="this.style.background='#1a3a28'" onmouseout="this.style.background='#162e22'">
-            ✉️ gsachair@youngscientistacademy.org
-          </a>
-          <button onclick="navigator.clipboard.writeText('gsachair@youngscientistacademy.org').then(()=>{this.textContent='✓';setTimeout(()=>this.textContent='📋',1500)})" style="background:#162e22;border:1px solid #27ae60;border-radius:20px;padding:7px 10px;font-size:0.72rem;color:#2ecc71;cursor:pointer;flex-shrink:0;transition:background 0.2s;" onmouseover="this.style.background='#1a3a28'" onmouseout="this.style.background='#162e22'" title="Copy email">📋</button>
-        </div>
-      </div>
-    </div>
-
     <div class="scroll-hint" id="scroll-hint">↓ Scroll for more</div>
 
     <!-- Mobile-only action bar — replaces floating FABs -->
@@ -721,6 +694,31 @@
   <span id="footer-left">NASA/USGS Landsat 8 · Google Earth Engine · Code Green YSA 2026</span>
   <span>Green Score = Sentinel-2 Visual HSV Analysis (OpenCV)</span>
 </footer>
+
+<!-- About modal -->
+<div id="about-modal" onclick="if(event.target===this)this.classList.remove('show')" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:10010;align-items:center;justify-content:center;">
+  <div style="background:#162e22;border:2px solid #27ae60;border-radius:14px;padding:28px 28px;max-width:480px;width:92%;position:relative;max-height:90vh;overflow-y:auto;">
+    <button onclick="document.getElementById('about-modal').classList.remove('show')" style="position:absolute;top:14px;right:16px;background:none;border:none;color:#6a9a88;font-size:1.2rem;cursor:pointer;">✕</button>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+      <div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#27ae60,#1a7a2e);display:flex;align-items:center;justify-content:center;font-size:1.4rem;flex-shrink:0;">🌿</div>
+      <div>
+        <div style="font-size:1rem;font-weight:700;color:#e0f0eb;">Mads</div>
+        <div style="font-size:0.68rem;color:#6a9a88;">GSA Chair · YSA Global STEM Ambassadors</div>
+      </div>
+    </div>
+    <h3 style="color:#2ecc71;font-size:0.78rem;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">About This Project</h3>
+    <p style="font-size:0.72rem;color:#a0c9b8;line-height:1.7;margin-bottom:12px;">Code Green started in 2021 as my first green space analysis of Wilmington, NC — a manual satellite image study I built from scratch. This version expands that foundation into a live, multi-city tracker using real NASA/USGS Landsat 8 and Sentinel-2 data, rebuilt with Claude as a YSA Global STEM Ambassadors research project.</p>
+    <p style="font-size:0.72rem;color:#a0c9b8;line-height:1.7;margin-bottom:16px;">The research tests whether COVID-19 lockdowns paused construction in 2020, creating a post-pandemic development surge that accelerated green space loss — comparing Wilmington, NC with Chisinau and Lozova, Moldova.</p>
+    <h3 style="color:#2ecc71;font-size:0.78rem;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">Organization</h3>
+    <p style="font-size:0.72rem;color:#a0c9b8;margin-bottom:16px;">Young Scientist Academy · <a href="https://youngscientistacademy.org" target="_blank" style="color:#2ecc71;">youngscientistacademy.org</a></p>
+    <h3 style="color:#2ecc71;font-size:0.78rem;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px;">Contact</h3>
+    <div style="display:flex;gap:8px;margin-bottom:10px;">
+      <a href="mailto:gsachair@youngscientistacademy.org" style="flex:1;text-align:center;background:#0f1a16;border:1px solid #27ae60;border-radius:20px;padding:8px 12px;font-size:0.68rem;color:#2ecc71;font-weight:bold;text-decoration:none;">✉️ gsachair@youngscientistacademy.org</a>
+      <button onclick="navigator.clipboard.writeText('gsachair@youngscientistacademy.org').then(()=>{this.textContent='✓';setTimeout(()=>this.textContent='📋',1500)})" style="background:#0f1a16;border:1px solid #27ae60;border-radius:20px;padding:8px 10px;font-size:0.72rem;color:#2ecc71;cursor:pointer;flex-shrink:0;">📋</button>
+    </div>
+    <a href="https://s.blinq.me/cmn07llcw0ahz0ns68jks60hj?bs=icl" target="_blank" style="display:block;text-align:center;background:#27ae60;border:none;border-radius:20px;padding:9px 14px;font-size:0.72rem;color:white;font-weight:bold;text-decoration:none;">💼 View My Digital Business Card (Blinq)</a>
+  </div>
+</div>
 
 <!-- Help overlay -->
 <div id="help-overlay" onclick="if(event.target===this)this.classList.remove('show')">
