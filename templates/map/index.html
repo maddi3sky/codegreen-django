@@ -671,7 +671,7 @@
 
     <div class="chart-sec">
       <h2 onclick="toggleChart()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;">How Green Space Changed Over Time <span id="chart-arrow" style="font-size:0.8rem;transition:transform 0.25s;display:inline-block;transform:rotate(180deg);">▲</span></h2>
-      <div id="chart-body" style="overflow:hidden;transition:max-height 0.35s ease;max-height:0;">
+      <div id="chart-body" style="overflow:hidden;transition:max-height 0.35s ease;max-height:300px;">
       </div><!-- /chart-body -->
     </div>
     <!-- About the Researcher -->
@@ -2061,7 +2061,7 @@ function toggleColors(){
   document.getElementById('colors-body').style.maxHeight=colorsOpen?'900px':'0';
   document.getElementById('colors-arrow').style.transform=colorsOpen?'':'rotate(180deg)';
 }
-let chartOpen=false;
+let chartOpen=true;
 function toggleChart(){
   chartOpen=!chartOpen;
   const body=document.getElementById('chart-body');
