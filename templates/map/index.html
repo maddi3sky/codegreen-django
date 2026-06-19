@@ -1954,7 +1954,12 @@ function loadSatOverlay(yr){
 function toggleSatellite(on){
   satMode=on;
   if(on){const idx=parseInt(document.getElementById('yr-slider').value);loadSatOverlay(YEARS[idx]);}
-  else{if(satOverlay){map.removeLayer(satOverlay);satOverlay=null;}}
+  else{
+    if(satOverlay){map.removeLayer(satOverlay);satOverlay=null;}
+    const isDark=document.getElementById('sw-dark').checked;
+    if(isDark){map.removeLayer(lightTile);darkTile.addTo(map);}
+    else{map.removeLayer(darkTile);lightTile.addTo(map);}
+  }
 }
 
 function updateOpacity(val){
