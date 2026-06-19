@@ -1923,8 +1923,13 @@ function buildCircles(yr){
 // ══════════════════════════════════════════════
 function toggleMapStyle(isDark){
   if(satMode)return;
-  if(isDark){map.removeLayer(lightTile);darkTile.addTo(map);}
-  else{map.removeLayer(darkTile);lightTile.addTo(map);}
+  if(isDark){
+    if(map.hasLayer(lightTile))map.removeLayer(lightTile);
+    if(!map.hasLayer(darkTile))darkTile.addTo(map);
+  }else{
+    if(map.hasLayer(darkTile))map.removeLayer(darkTile);
+    if(!map.hasLayer(lightTile))lightTile.addTo(map);
+  }
 }
 
 function loadSatOverlay(yr){
