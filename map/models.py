@@ -56,6 +56,19 @@ class UserMark(models.Model):
         return f'{self.label} ({self.site_id})'
 
 
+class BugReport(models.Model):
+    text = models.TextField()
+    contact = models.CharField(max_length=256, blank=True)
+    site = models.CharField(max_length=64, blank=True)
+    url = models.URLField(max_length=512, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'[{self.site}] {self.text[:60]}'
+
 class Pledge(models.Model):
     site = models.ForeignKey(Site, on_delete=models.CASCADE, related_name='pledges')
     user = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)

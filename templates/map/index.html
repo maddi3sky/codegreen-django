@@ -475,6 +475,7 @@
   </div>
   <div class="hr">
     <div class="badge" onclick="document.getElementById('help-overlay').classList.add('show')">❓ Help</div>
+    <div class="badge" onclick="document.getElementById('bug-modal').style.display='flex'">🐛 Report</div>
     <div class="badge" onclick="document.getElementById('about-modal').classList.add('show');document.getElementById('about-modal').style.display='flex'">🌿 About</div>
     <div class="badge" onclick="shareLink()">🔗 Share</div>
     <div class="badge" onclick="document.getElementById('settings-overlay').classList.add('show')" style="font-size:1rem;padding:4px 10px;">⚙️</div>
@@ -715,6 +716,21 @@
 </footer>
 
 <!-- About modal -->
+<div id="bug-modal" onclick="if(event.target===this)this.style.display='none'" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:10010;align-items:center;justify-content:center;">
+  <div style="background:#0d1612;border:2px solid #27ae60;border-radius:14px;padding:24px 28px;width:min(400px,92vw);position:relative;">
+    <button onclick="document.getElementById('bug-modal').style.display='none'" style="position:absolute;top:12px;right:14px;background:none;border:none;color:#6a9a88;font-size:1.2rem;cursor:pointer;">✕</button>
+    <h3 style="color:#e0f0eb;margin:0 0 4px;">🐛 Report a Problem</h3>
+    <p style="color:#6a9a88;font-size:0.72rem;margin:0 0 14px;">See a bug, glitch, or something off? Let us know and we'll fix it.</p>
+    <textarea id="bug-text" placeholder="Describe the issue — what happened, which map, which year..." style="width:100%;box-sizing:border-box;height:110px;background:#0a1f12;border:1px solid #27ae60;border-radius:8px;color:#e0f0eb;padding:10px;font-size:0.78rem;resize:vertical;outline:none;"></textarea>
+    <input id="bug-contact" placeholder="Your email or name (optional)" style="width:100%;box-sizing:border-box;margin-top:8px;background:#0a1f12;border:1px solid #1a4a2e;border-radius:8px;color:#e0f0eb;padding:9px 12px;font-size:0.75rem;outline:none;"/>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button onclick="submitBugReport()" style="flex:1;background:#27ae60;border:none;border-radius:8px;color:white;padding:10px;font-size:0.8rem;font-weight:bold;cursor:pointer;">Send Report</button>
+      <button onclick="document.getElementById('bug-modal').style.display='none'" style="flex:1;background:#1a2e22;border:1px solid #3a5a4a;border-radius:8px;color:#6a9a88;padding:10px;font-size:0.8rem;cursor:pointer;">Cancel</button>
+    </div>
+    <p id="bug-status" style="color:#2ecc71;font-size:0.72rem;margin:10px 0 0;display:none;text-align:center;"></p>
+  </div>
+</div>
+
 <div id="about-modal" onclick="if(event.target===this)this.style.display='none'" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:10010;align-items:center;justify-content:center;">
   <div style="background:#162e22;border:2px solid #27ae60;border-radius:14px;padding:28px 28px;max-width:480px;width:92%;position:relative;max-height:90vh;overflow-y:auto;">
     <button onclick="document.getElementById('about-modal').style.display='none'" style="position:absolute;top:14px;right:16px;background:none;border:none;color:#6a9a88;font-size:1.2rem;cursor:pointer;">✕</button>
@@ -2635,6 +2651,21 @@ function downloadQR(){
 function fallbackCopy(text){
   const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
   document.body.appendChild(ta);ta.select();try{document.execCommand('copy');}catch(e){}document.body.removeChild(ta);showShareToast('✅ Link copied!');
+}
+function submitBugReport(){
+  const text=document.getElementById('bug-text').value.trim();
+  const contact=document.getElementById('bug-contact').value.trim();
+  const status=document.getElementById('bug-status');
+  if(!text){status.style.display='block';status.style.color='#e74c3c';status.textContent='Please describe the issue first.';return;}
+  const csrf=document.querySelector('meta[name="csrf-token"]')?.content||'';
+  fetch('/api/bug-report/',{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrf},body:JSON.stringify({text,contact,site:SITES[currentSiteIdx]?.id||'wilmington',url:window.location.href})})
+    .then(r=>r.ok?r.json():Promise.reject())
+    .then(()=>{
+      status.style.display='block';status.style.color='#2ecc71';status.textContent='✅ Report sent — thank you!';
+      document.getElementById('bug-text').value='';document.getElementById('bug-contact').value='';
+      setTimeout(()=>document.getElementById('bug-modal').style.display='none',1800);
+    })
+    .catch(()=>{status.style.display='block';status.style.color='#e74c3c';status.textContent='Failed to send. Try again.';});
 }
 function showShareToast(msg){
   const t=document.getElementById('share-toast');t.textContent=msg||'✅ Done';t.style.display='block';t.style.opacity='1';

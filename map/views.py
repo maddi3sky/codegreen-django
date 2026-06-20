@@ -93,6 +93,22 @@ class PledgeList(generics.ListCreateAPIView):
 
 # ── Auth Status ────────────────────────────────────────────────────────────────
 
+@api_view(['POST'])
+@permission_classes([permissions.AllowAny])
+def bug_report(request):
+    from .models import BugReport
+    text = request.data.get('text', '').strip()
+    if not text:
+        return Response({'error': 'text required'}, status=400)
+    BugReport.objects.create(
+        text=text,
+        contact=request.data.get('contact', ''),
+        site=request.data.get('site', ''),
+        url=request.data.get('url', ''),
+    )
+    return Response({'ok': True})
+
+
 @api_view(['GET'])
 @permission_classes([permissions.AllowAny])
 def auth_status(request):

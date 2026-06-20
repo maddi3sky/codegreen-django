@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Site, DataPoint, Comment, UserMark
+from .models import Site, DataPoint, Comment, UserMark, BugReport
 
 @admin.register(Site)
 class SiteAdmin(admin.ModelAdmin):
@@ -18,3 +18,8 @@ class CommentAdmin(admin.ModelAdmin):
 @admin.register(UserMark)
 class UserMarkAdmin(admin.ModelAdmin):
     list_display = ['label', 'site', 'lat', 'lng', 'created_at']
+
+@admin.register(BugReport)
+class BugReportAdmin(admin.ModelAdmin):
+    list_display = ['created_at', 'site', 'contact', 'text']
+    list_filter = ['site']

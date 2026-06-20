@@ -14,4 +14,6 @@ urlpatterns = [
     path('api/pledges/', views.PledgeList.as_view(), name='pledges'),
     # Auth status
     path('api/auth/status/', views.auth_status, name='auth-status'),
+    # Bug reports
+    path('api/bug-report/', views.bug_report, name='bug-report'),
 ]
